@@ -104,12 +104,6 @@ def mapa(rompientes: pd.DataFrame | None = None, trayectorias=None, cuadricula: 
     c = costa()
     fig.add_trace(go.Scatter(x=c["x"], y=c["y"], mode="lines", line=dict(color="#ffeb3b", width=1.5),
                              hoverinfo="skip", name="Costa (OSM)"))
-    if BATI_USUARIO_FILE.exists():
-        from .playa import batimetria_usuario
-        u = batimetria_usuario()
-        fig.add_trace(go.Scatter(x=u["x_m"], y=u["y_m"], mode="markers", marker=dict(color="#e040fb", size=5),
-                                 hovertemplate="%{text} m<extra>tu batimetría</extra>",
-                                 text=u["profundidad_m"], name="Tus profundidades"))
     if cuadricula:
         _cuadricula(fig, cuadricula)
     fig.update_layout(
