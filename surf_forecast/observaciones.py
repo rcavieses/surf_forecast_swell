@@ -34,10 +34,24 @@ def add_observation(obs: dict) -> None:
     OBS_FILE.parent.mkdir(parents=True, exist_ok=True)
     new = not OBS_FILE.exists()
     with OBS_FILE.open("a", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, COLUMNS)
+        w = csv.DictWriter(f, COLUMNS, lineterminator="\n")
         if new:
             w.writeheader()
         w.writerow({c: obs.get(c, "") for c in COLUMNS})
+
+
+def delete_observation(number: int) -> dict:
+    """Borra la observación número `number` (1 = la primera del archivo) y la devuelve."""
+    df = load_observations()
+    if not 1 <= number <= len(df):
+        raise IndexError(number)
+    removed = df.iloc[number - 1].to_dict()
+    # Mismo escritor que add_observation (saltos de línea \n en Windows y Termux) para no ensuciar los diffs.
+    with OBS_FILE.open("w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, COLUMNS, lineterminator="\n")
+        w.writeheader()
+        w.writerows(df.drop(index=df.index[number - 1]).to_dict("records"))
+    return removed
 
 
 def _history_files():

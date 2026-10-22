@@ -63,6 +63,8 @@ Después de cada sesión registra lo que viste; con eso el pronóstico se ajusta
 
 ```bash
 python observar.py agregar      # pregunta fecha, horas, altura mín/máx, sets, lado, viento, calidad y notas
+python observar.py listar       # sesiones registradas, numeradas
+python observar.py eliminar 2   # borra la sesión 2 si te equivocaste (pide confirmación)
 python observar.py comparar     # tus observaciones vs. lo que pronosticó el modelo
 python observar.py calibrar     # guarda el factor sugerido; el siguiente pronóstico ya lo usa
 ```

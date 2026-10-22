@@ -4,6 +4,8 @@ Uso:
     python observar.py agregar             # te pregunta los datos uno por uno
     python observar.py agregar --fecha 2026-10-21 --inicio 10 --fin 18 --min 1.2 --max 1.8 --sets 2 \
         --lado izquierda --viento "onshore 10-15h, calma, regresa 18h" --calidad 4 --notas "..."
+    python observar.py listar              # sesiones registradas, numeradas
+    python observar.py eliminar 2          # borra la sesión número 2 (pide confirmación)
     python observar.py comparar            # observaciones vs. pronóstico y factor sugerido
     python observar.py calibrar            # guarda el factor sugerido (data/calibracion.json)
     python observar.py calibrar --factor 0.8
@@ -79,6 +81,42 @@ def cmd_agregar(a):
     cmd_comparar(a)
 
 
+def _describe(o) -> str:
+    extra = ", ".join(v for v in [f"sets {o['sets_m']} m" if o["sets_m"] else "", o["lado"],
+                                  f"calidad {o['calidad']}" if o["calidad"] else "", o["notas"]] if v)
+    return (f"{o['fecha']} {o['hora_inicio']}-{o['hora_fin']}: {o['altura_min_m']}-{o['altura_max_m']} m"
+            + (f" ({extra})" if extra else ""))
+
+
+def cmd_listar(_a):
+    df = obs.load_observations()
+    if df.empty:
+        print("Todavía no hay observaciones.")
+        return False
+    for i, (_, o) in enumerate(df.iterrows(), start=1):
+        print(f"{i:>3}. {_describe(o)}")
+    return True
+
+
+def cmd_eliminar(a):
+    if a.numero is None:
+        if not cmd_listar(a):
+            return
+        a.numero = _ask("\nNúmero a eliminar (Enter para cancelar)", "", int)
+        if a.numero == "":
+            print("Cancelado.")
+            return
+    df = obs.load_observations()
+    if not 1 <= a.numero <= len(df):
+        sys.exit(f"No existe la observación {a.numero} (hay {len(df)}). Usa `python observar.py listar`.")
+    print(f"Se borrará: {_describe(df.iloc[a.numero - 1])}")
+    if not a.si and input("¿Seguro? (s/N): ").strip().lower() not in ("s", "si", "sí"):
+        print("Cancelado.")
+        return
+    obs.delete_observation(a.numero)
+    print("Eliminada. Si ya habías calibrado, corre `python observar.py calibrar` para recalcular el factor.")
+
+
 def cmd_comparar(_a):
     table = obs.compare()
     if table.empty:
@@ -134,8 +172,9 @@ def cmd_calibrar(a):
 
 
 def main():
-    if hasattr(sys.stdout, "reconfigure"):
-        sys.stdout.reconfigure(encoding="utf-8")
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
 
     p = argparse.ArgumentParser(description="Observaciones y calibración del pronóstico")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -152,6 +191,13 @@ def main():
     ag.add_argument("--calidad", type=_calidad, help="1-5")
     ag.add_argument("--notas")
     ag.set_defaults(func=cmd_agregar)
+
+    sub.add_parser("listar", help="sesiones registradas, numeradas").set_defaults(func=cmd_listar)
+
+    el = sub.add_parser("eliminar", help="borrar una sesión por su número")
+    el.add_argument("numero", type=int, nargs="?", help="número que muestra `listar` (si falta, pregunta)")
+    el.add_argument("--si", action="store_true", help="no pedir confirmación")
+    el.set_defaults(func=cmd_eliminar)
 
     sub.add_parser("comparar", help="observaciones vs. pronóstico").set_defaults(func=cmd_comparar)
 
