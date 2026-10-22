@@ -19,8 +19,8 @@ from datetime import date
 from surf_forecast import config
 from surf_forecast import observaciones as obs
 from surf_forecast.fechas import ahora
-from surf_forecast.observaciones import (LADOS, VIENTO_NIVELES, hhmm, parse_calidad, parse_lado,
-                                         parse_viento_nivel, viento_nivel_texto)
+from surf_forecast.observaciones import (DIRECCIONES, LADOS, VIENTO_NIVELES, hhmm, parse_calidad, parse_lado,
+                                         parse_viento_dir, parse_viento_nivel, tipo_viento, viento_nivel_texto)
 
 
 def _ask(label: str, default="", cast=str, required=False):
@@ -47,6 +47,7 @@ def cmd_agregar(a):
         a.lado = _ask(f"Lado ({'/'.join(LADOS)}, opcional)", "", parse_lado)
         print("Viento: " + ", ".join(f"{i} {n}" for i, n in enumerate(VIENTO_NIVELES)))
         a.viento_nivel = _ask("Nivel de viento (número o nombre, opcional)", "", parse_viento_nivel)
+        a.viento_dir = _ask(f"¿De dónde venía? ({'/'.join(DIRECCIONES)}, opcional)", "", parse_viento_dir)
         a.viento = _ask("Detalle del viento (opcional, p. ej. onshore desde las 10)")
         a.calidad = _ask("Calidad 1-5 (opcional)", "", parse_calidad)
         a.notas = _ask("Notas (opcional)")
@@ -55,7 +56,8 @@ def cmd_agregar(a):
 
     try:
         o = obs.build_observation(a.fecha, a.inicio or "08:00", a.fin or "12:00", a.min, a.max,
-                                  "" if a.sets is None else a.sets, a.lado or "", a.viento_nivel or "", a.viento,
+                                  "" if a.sets is None else a.sets, a.lado or "", a.viento_nivel or "",
+                                  a.viento_dir or "", a.viento,
                                   a.calidad or "", a.notas)
     except ValueError as e:
         sys.exit(str(e))
@@ -66,7 +68,9 @@ def cmd_agregar(a):
 
 def _describe(o) -> str:
     extra = ", ".join(v for v in [f"sets {o['sets_m']} m" if o["sets_m"] else "", o["lado"],
-                                  f"viento {viento_nivel_texto(o['viento_nivel'])}" if o["viento_nivel"] else "",
+                                  " ".join(x for x in ["viento", viento_nivel_texto(o["viento_nivel"]),
+                                                       f"del {o['viento_dir']}" if o["viento_dir"] else ""] if x)
+                                  if o["viento_nivel"] or o["viento_dir"] else "",
                                   f"calidad {o['calidad']}" if o["calidad"] else "", o["notas"]] if v)
     return (f"{o['fecha']} {o['hora_inicio']}-{o['hora_fin']}: {o['altura_min_m']}-{o['altura_max_m']} m"
             + (f" ({extra})" if extra else ""))
@@ -113,10 +117,12 @@ def cmd_comparar(_a):
         for label, seen, fc in [("Altura", f"{r['visto_m']} m" + (f", sets {r['sets_m']} m" if r["sets_m"] else ""),
                                  f"{r.get('pronóstico_m', '')} m"),
                                 ("Lado", r["lado"], r.get("lado_pron", "")),
-                                ("Viento", " · ".join(v for v in [viento_nivel_texto(r["viento_nivel"]),
-                                                                  r["viento_visto"]] if v),
-                                 f"{viento_nivel_texto(r['viento_nivel_pron'])} ({r['viento_pron']})"
-                                 if r.get("viento_pron") else ""),
+                                ("Viento", " · ".join(v for v in [
+                                    viento_nivel_texto(r["viento_nivel"]),
+                                    f"del {r['viento_dir']} ({tipo_viento(r['viento_dir'], r['viento_nivel'])})"
+                                    if r["viento_dir"] else "", r["viento_visto"]] if v),
+                                 f"{viento_nivel_texto(r['viento_nivel_pron'])} del {r['viento_dir_pron']} "
+                                 f"({r['viento_pron']})" if r.get("viento_pron") else ""),
                                 ("Calidad", r["calidad"], r.get("calif_pron", ""))]:
             print(f"  {label:<8} visto: {seen or '-':<28} pronóstico: {fc or '-'}")
         if r.get("marea"):
@@ -176,6 +182,7 @@ def main():
     ag.add_argument("--lado", type=parse_lado, help="/".join(LADOS))
     ag.add_argument("--viento-nivel", type=parse_viento_nivel,
                     help="0-4: " + ", ".join(f"{i} {n}" for i, n in enumerate(VIENTO_NIVELES)))
+    ag.add_argument("--viento-dir", type=parse_viento_dir, help="de dónde viene: " + "/".join(DIRECCIONES))
     ag.add_argument("--viento", help="detalle del viento, texto libre")
     ag.add_argument("--calidad", type=parse_calidad, help="1-5")
     ag.add_argument("--notas")

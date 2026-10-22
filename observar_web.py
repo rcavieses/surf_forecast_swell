@@ -9,6 +9,8 @@ Solo escucha en este equipo (127.0.0.1); no queda expuesta a la red.
 """
 
 import argparse
+import json
+import math
 import os
 import subprocess
 import sys
@@ -25,8 +27,8 @@ from surf_forecast import observaciones as obs
 from surf_forecast.fechas import ahora, dia
 
 ROOT = Path(__file__).resolve().parent
-FORM_FIELDS = ["fecha", "inicio", "fin", "altura_min", "altura_max", "sets", "lado", "viento_nivel", "viento",
-               "calidad", "notas"]
+FORM_FIELDS = ["fecha", "inicio", "fin", "altura_min", "altura_max", "sets", "lado", "viento_nivel", "viento_dir",
+               "viento", "calidad", "notas"]
 last_sync = ""  # salida del último "Sincronizar con GitHub", para mostrarla en la página
 
 
@@ -101,7 +103,21 @@ button.secondary { background: #eceff1; color: #263238; } button.danger { backgr
        flex-wrap: wrap; font-size: 14px; }
 pre { white-space: pre-wrap; font-size: 12px; background: #263238; color: #eceff1; padding: 10px; border-radius: 8px;
        max-height: 260px; overflow: auto; }
-@media (max-width: 600px) { body { padding: 10px; } .card th, .card td { padding: 6px 10px; } }
+.rose-wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; margin-bottom: 12px; }
+.rose { position: relative; width: 250px; height: 250px; flex: none; }
+.rose svg { width: 250px; height: 250px; display: block; }
+.rose-zone { font-size: 11px; font-weight: 700; fill: #546e7a; text-anchor: middle; dominant-baseline: middle;
+       letter-spacing: .08em; }
+.rose-dir { position: absolute; transform: translate(-50%, -50%); margin: 0; }
+.rose-dir input { position: absolute; opacity: 0; width: 0; }
+.rose-dir span { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; background: white;
+       border: 1px solid #90a4ae; color: #263238; font-size: 13px; font-weight: 700; cursor: pointer; }
+.rose-dir input:checked + span { background: var(--accent); color: white; border-color: var(--accent); }
+.rose-dir input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+.rose-cap { margin: 0 0 8px; font-size: 15px; min-height: 1.4em; }
+.arrow { display: inline-block; font-weight: 700; }
+@media (max-width: 600px) { body { padding: 10px; } .card th, .card td { padding: 6px 10px; }
+  .rose-wrap { justify-content: center; text-align: center; } .rose-wrap .choices { justify-content: center; } }
 """
 
 
@@ -117,6 +133,107 @@ def _choices(name: str, options: list[tuple[str, str]], selected: str) -> str:
     return "<div class='choices'>" + "".join(
         f"<label><input type='radio' name='{name}' value='{escape(v)}'{' checked' if v == selected else ''}>"
         f"<span>{escape(text)}</span></label>" for v, text in options) + "</div>"
+
+
+WIND_COLORS = {"offshore": "#2e7d32", "cruzado": "#ef6c00", "onshore": "#c62828"}
+ROSE_SIZE, ROSE_LABEL_R, ROSE_R = 250, 104, 80  # px: tamaño, radio de los botones, radio del círculo
+
+
+def _xy(bearing: float, r: float) -> tuple[float, float]:
+    """Rumbo (0 = N, horario) a coordenadas SVG con el centro en 0,0 (y hacia abajo)."""
+    return r * math.sin(math.radians(bearing)), -r * math.cos(math.radians(bearing))
+
+
+def _rose(selected: str) -> str:
+    """Rosa de los vientos: botones de rumbo alrededor y flecha (dibujada por ROSE_JS) en el centro."""
+    sea = config.BEACH_NORMAL_DEG
+    (x1, y1), (x2, y2) = _xy(sea - 90, ROSE_R), _xy(sea + 90, ROSE_R)
+    # Rótulos corridos 55° del eje de la playa, para que la flecha offshore/onshore no los tape.
+    (mx, my), (tx, ty) = _xy(sea + 55, ROSE_R * 0.6), _xy(sea + 180 + 55, ROSE_R * 0.6)
+    svg = f"""<svg viewBox="{-ROSE_SIZE / 2} {-ROSE_SIZE / 2} {ROSE_SIZE} {ROSE_SIZE}" aria-hidden="true">
+ <circle r="{ROSE_R}" fill="#f3e5c6"/>
+ <path d="M0,0 L{x1:.1f},{y1:.1f} A{ROSE_R},{ROSE_R} 0 0,1 {x2:.1f},{y2:.1f} Z" fill="#b3e5fc"/>
+ <line x1="{x1:.1f}" y1="{y1:.1f}" x2="{x2:.1f}" y2="{y2:.1f}" stroke="#c8a96a" stroke-width="3"/>
+ <text x="{mx:.1f}" y="{my:.1f}" class="rose-zone">MAR</text><text x="{tx:.1f}" y="{ty:.1f}" class="rose-zone">TIERRA</text>
+ <circle r="{ROSE_R}" fill="none" stroke="#90a4ae"/>
+ <g id="vr-arrow" style="display:none"><line id="vr-line" x1="0" x2="0" stroke-linecap="round"/>
+  <polygon id="vr-head"/></g>
+</svg>"""
+    buttons = []
+    for d in obs.DIRECCIONES:
+        x, y = _xy(obs.DIRECCION_GRADOS[d], ROSE_LABEL_R)
+        buttons.append(f"<label class='rose-dir' style='left:{ROSE_SIZE / 2 + x:.0f}px;top:{ROSE_SIZE / 2 + y:.0f}px'>"
+                       f"<input type='radio' name='viento_dir' value='{d}'{' checked' if d == selected else ''}>"
+                       f"<span>{d}</span></label>")
+    clear = (f"<label><input type='radio' name='viento_dir' value=''{' checked' if not selected else ''}>"
+             f"<span>sin dirección</span></label>")
+    return (f"<div class='rose-wrap'><div class='rose'>{svg}{''.join(buttons)}</div>"
+            f"<div><p id='vr-cap' class='rose-cap'></p><div class='choices'>{clear}</div></div></div>")
+
+
+# Dibuja la flecha de la rosa: apunta hacia donde sopla, largo/grosor según el nivel, color según el tipo.
+ROSE_JS = """
+(function () {
+  const DEG = __DEG__, NAMES = __NAMES__, COLORS = __COLORS__, OFF = __OFF__;
+  const LEN = [0, 34, 48, 60, 70], WIDTH = [0, 4, 5, 7, 9];
+  const val = n => (document.querySelector('input[name=' + n + ']:checked') || {}).value || '';
+  function kind(d) {
+    const x = Math.abs(((d - OFF + 540) % 360) - 180);
+    return x <= 45 ? 'offshore' : x <= 110 ? 'cruzado' : 'onshore';
+  }
+  function update() {
+    const dir = val('viento_dir'), lvlS = val('viento_nivel');
+    const g = document.getElementById('vr-arrow'), cap = document.getElementById('vr-cap');
+    if (lvlS === '0') { g.style.display = 'none'; cap.innerHTML = '<b>Sin viento</b> (glassy)'; return; }
+    if (!dir) { g.style.display = 'none'; cap.textContent = 'Toca de dónde venía el viento.'; return; }
+    const lvl = lvlS === '' ? 2 : +lvlS, L = LEN[lvl], k = kind(DEG[dir]), c = COLORS[k];
+    const line = document.getElementById('vr-line'), head = document.getElementById('vr-head');
+    line.setAttribute('y1', -L); line.setAttribute('y2', L - 12);
+    line.setAttribute('stroke', c); line.setAttribute('stroke-width', WIDTH[lvl]);
+    const h = 8 + WIDTH[lvl];
+    head.setAttribute('points', (-h) + ',' + (L - 16) + ' ' + h + ',' + (L - 16) + ' 0,' + (L + 4));
+    head.setAttribute('fill', c);
+    g.setAttribute('transform', 'rotate(' + DEG[dir] + ')');
+    g.style.display = '';
+    cap.innerHTML = 'Viene del <b>' + dir + '</b> · <b style="color:' + c + '">' + k + '</b>' +
+      (lvlS === '' ? '' : ' · ' + NAMES[lvl]);
+  }
+  document.querySelectorAll('input[name=viento_dir], input[name=viento_nivel]')
+    .forEach(e => e.addEventListener('change', update));
+  update();
+})();
+"""
+
+
+def _rose_js() -> str:
+    return (ROSE_JS.replace("__DEG__", json.dumps(obs.DIRECCION_GRADOS))
+            .replace("__NAMES__", json.dumps(obs.VIENTO_NIVELES, ensure_ascii=False))
+            .replace("__COLORS__", json.dumps(WIND_COLORS)).replace("__OFF__", str(config.OFFSHORE_WIND_DEG)))
+
+
+def _arrow(direction: str, kind: str = "") -> str:
+    """Flecha pequeña que apunta hacia donde sopla un viento que viene de `direction`."""
+    if direction not in obs.DIRECCION_GRADOS:
+        return ""
+    color = WIND_COLORS.get(kind, "#546e7a")
+    return (f"<span class='arrow' style='transform:rotate({obs.DIRECCION_GRADOS[direction]}deg);color:{color}' "
+            f"aria-hidden='true'>↓</span> ")
+
+
+def _wind_seen(o) -> str:
+    kind = obs.tipo_viento(o["viento_dir"], o["viento_nivel"])
+    parts = [obs.viento_nivel_texto(o["viento_nivel"]),
+             f"del {o['viento_dir']} ({kind})" if o["viento_dir"] else "", o["viento"]]
+    text = escape(" · ".join(p for p in parts if p))
+    return (_arrow(o["viento_dir"], kind) + text) if text else "-"
+
+
+def _wind_forecast(r) -> str:
+    if not r.get("viento_pron"):
+        return "-"
+    level, direction = r["viento_nivel_pron"], r["viento_dir_pron"]
+    return (_arrow(direction, obs.tipo_viento(direction, level))
+            + escape(f"{obs.viento_nivel_texto(level)} del {direction} ({r['viento_pron']})"))
 
 
 def _form(values: dict) -> str:
@@ -144,15 +261,18 @@ def _form(values: dict) -> str:
 </div>
 <label>Lado</label>{_choices("lado", lados, values.get("lado", ""))}
 <label>Calidad</label>{_choices("calidad", calidades, values.get("calidad", ""))}
-<label>Viento</label>{_choices("viento_nivel", vientos, values.get("viento_nivel", ""))}
+<label>Viento: fuerza</label>{_choices("viento_nivel", vientos, values.get("viento_nivel", ""))}
 <p class="muted" style="margin-top:-6px">{escala}</p>
+<label>Viento: ¿de dónde venía?</label>
+{_rose(values.get("viento_dir", ""))}
 <div class="grid">
  <div><label for="viento">Detalle del viento</label><input id="viento" name="viento" value="{v['viento']}"
   placeholder="opcional, p. ej. onshore desde las 10"></div>
 </div>
 <label for="notas">Notas</label><textarea id="notas" name="notas" placeholder="marea, gente, bancos de arena…">{v['notas']}</textarea>
 <p><button type="submit">Guardar sesión</button></p>
-</form>"""
+</form>
+<script>{_rose_js()}</script>"""
 
 
 def _calibration(table: pd.DataFrame) -> str:
@@ -204,10 +324,7 @@ def _sessions(observations: pd.DataFrame, table: pd.DataFrame) -> str:
             ("Altura", f"{escape(o['altura_min_m'])}–{escape(o['altura_max_m'])} m{sets}",
              f"{escape(str(r.get('pronóstico_m', '')))} m" if r.get("pronóstico_m") else "-"),
             ("Lado", escape(o["lado"]) or "-", escape(str(r.get("lado_pron", ""))) or "-"),
-            ("Viento", escape(" · ".join(x for x in [obs.viento_nivel_texto(o["viento_nivel"]), o["viento"]] if x))
-             or "-",
-             f"{escape(obs.viento_nivel_texto(r['viento_nivel_pron']))} ({escape(str(r['viento_pron']))})"
-             if r.get("viento_pron") else "-"),
+            ("Viento", _wind_seen(o), _wind_forecast(r)),
             ("Calidad", _stars(o["calidad"]) if o["calidad"] else "-",
              _stars(r.get("calif_pron")) if r.get("calif_pron") != "" else "-"),
         ]

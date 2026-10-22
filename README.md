@@ -87,7 +87,9 @@ python observar.py calibrar     # guarda el factor sugerido; el siguiente pronó
   | 3 fuerte | picado, cuesta remar | 20–30 km/h |
   | 4 muy fuerte | casi imposible surfear | > 30 km/h |
 
-  Además hay un campo libre para el detalle (dirección, a qué hora cambió, etc.).
+  La **dirección** (de dónde venía: N, NE, E, SE, S, SO, O, NO) se elige en una rosa de los vientos que
+  dibuja la playa (mar/tierra) y una flecha cuyo largo indica la fuerza y el color si fue offshore, cruzado u
+  onshore. En la terminal: `--viento-dir NE`. Además hay un campo libre para el detalle (a qué hora cambió, etc.).
 - `comparar` muestra, por sesión, lo que viste junto a lo pronosticado (altura, lado, viento, calidad) y
   la marea que hubo. También indica si el modelo tiende a sobreestimar o subestimar la calidad.
 - Para la altura busca en `data/historial/` el último pronóstico emitido **antes** de tu sesión y calcula el

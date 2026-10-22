@@ -1,2 +1,2 @@
-fecha,hora_inicio,hora_fin,altura_min_m,altura_max_m,sets_m,lado,viento_nivel,viento,calidad,notas
-2026-10-21,10:00,18:00,1.2,1.8,2.0,izquierda,,"10-15h con viento, baja, regresa ~18h",4,muy buenas izquierdas
+fecha,hora_inicio,hora_fin,altura_min_m,altura_max_m,sets_m,lado,viento_nivel,viento_dir,viento,calidad,notas
+2026-10-21,10:00,18:00,1.2,1.8,2.0,izquierda,,,"10-15h con viento, baja, regresa ~18h",4,muy buenas izquierdas

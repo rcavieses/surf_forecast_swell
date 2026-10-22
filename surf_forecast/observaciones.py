@@ -10,7 +10,7 @@ import pandas as pd
 
 from . import config
 from .fechas import ahora
-from .surf import compute_surf, surf_height
+from .surf import compute_surf, surf_height, wind_quality
 
 ROOT = Path(__file__).resolve().parent.parent
 OBS_FILE = ROOT / "data" / "observaciones.csv"
@@ -22,8 +22,12 @@ VIENTO_NIVELES = ["sin viento", "ligero", "moderado", "fuerte", "muy fuerte"]
 VIENTO_DESCRIPCION = ["glassy, espejo", "apenas riza la superficie", "algo de viento, superficie algo picada",
                       "picado, cuesta remar", "casi imposible surfear"]
 VIENTO_LIMITES_KMH = [5, 12, 20, 30]
+# Rumbos de donde viene el viento (8 puntos); también se aceptan los nombres en inglés (SW, W, NW).
+DIRECCIONES = ["N", "NE", "E", "SE", "S", "SO", "O", "NO"]
+DIRECCION_GRADOS = {d: i * 45 for i, d in enumerate(DIRECCIONES)}
+_ALIAS_DIRECCION = {"SW": "SO", "W": "O", "NW": "NO"}
 COLUMNS = ["fecha", "hora_inicio", "hora_fin", "altura_min_m", "altura_max_m", "sets_m", "lado", "viento_nivel",
-           "viento", "calidad", "notas"]
+           "viento_dir", "viento", "calidad", "notas"]
 MIN_OBS_CONFIABLE = 3
 
 # La rompiente pronosticada se publica como rango [0.75, 1.15] × surf_m; su punto medio es 0.95 × surf_m.
@@ -63,6 +67,29 @@ def parse_viento_nivel(value) -> str:
     return str(match[0])
 
 
+def parse_viento_dir(value) -> str:
+    """'ne', 'NE' o 'sw' -> rumbo en español de DIRECCIONES; vacío = sin dato."""
+    value = str(value).strip().upper()
+    value = _ALIAS_DIRECCION.get(value, value)
+    if value and value not in DIRECCION_GRADOS:
+        raise ValueError(value)
+    return value
+
+
+def rumbo8(deg: float) -> str:
+    return DIRECCIONES[int((deg % 360) / 45 + 0.5) % 8]
+
+
+def tipo_viento(direccion: str, nivel="") -> str:
+    """offshore / cruzado / onshore según la orientación de la playa; 'calma' si el nivel es 0."""
+    if str(nivel) == "0":
+        return "calma"
+    if not direccion:
+        return ""
+    # Velocidad simbólica por encima del umbral de calma: aquí solo importa la dirección.
+    return str(wind_quality(np.array([10.0]), DIRECCION_GRADOS[direccion])[0])
+
+
 def viento_nivel_kmh(kmh: float) -> int:
     """Nivel de la escala que corresponde a una velocidad de viento pronosticada."""
     return int(np.searchsorted(VIENTO_LIMITES_KMH, kmh, side="right"))
@@ -79,8 +106,8 @@ def parse_calidad(value) -> str:
     return value
 
 
-def build_observation(fecha, inicio, fin, altura_min, altura_max, sets="", lado="", viento_nivel="", viento="",
-                      calidad="", notas="") -> dict:
+def build_observation(fecha, inicio, fin, altura_min, altura_max, sets="", lado="", viento_nivel="", viento_dir="",
+                      viento="", calidad="", notas="") -> dict:
     """Valida y normaliza una sesión. Lanza ValueError con un mensaje para mostrar al usuario."""
     def num(v, name, required=False):
         if v in ("", None):
@@ -108,10 +135,12 @@ def build_observation(fecha, inicio, fin, altura_min, altura_max, sets="", lado=
     lo, hi = num(altura_min, "la altura mínima", True), num(altura_max, "la altura máxima", True)
     try:
         lado, viento_nivel, calidad = parse_lado(lado), parse_viento_nivel(viento_nivel), parse_calidad(calidad)
+        viento_dir = parse_viento_dir(viento_dir)
     except ValueError:
         raise ValueError("Lado, viento o calidad no válidos.") from None
     return {"fecha": fecha, "hora_inicio": inicio, "hora_fin": fin, "altura_min_m": min(lo, hi),
             "altura_max_m": max(lo, hi), "sets_m": num(sets, "los sets"), "lado": lado, "viento_nivel": viento_nivel,
+            "viento_dir": viento_dir,
             "viento": str(viento or "").strip(), "calidad": calidad, "notas": str(notas or "").strip()}
 
 
@@ -179,7 +208,8 @@ def compare() -> pd.DataFrame:
         issued, hours = forecast_for(start, end)
         row = {"fecha": o["fecha"], "horas": f"{o['hora_inicio']}-{o['hora_fin']}",
                "visto_m": f"{o['altura_min_m']}-{o['altura_max_m']}", "sets_m": o["sets_m"], "lado": o["lado"],
-               "viento_nivel": o["viento_nivel"], "viento_visto": o["viento"], "calidad": o["calidad"]}
+               "viento_nivel": o["viento_nivel"], "viento_dir": o["viento_dir"], "viento_visto": o["viento"],
+               "calidad": o["calidad"]}
         if hours is None:
             rows.append(row | {"emitido": "sin pronóstico"})
             continue
@@ -196,6 +226,9 @@ def compare() -> pd.DataFrame:
             "pronóstico_m": f"{current * 0.75:.1f}-{current * 1.15:.1f}",
             "lado_pron": fc["lado"].mode().iloc[0],
             "viento_nivel_pron": viento_nivel_kmh(hours["wind_speed_10m"].mean()),
+            # Promedio circular (que 350° y 10° den N, no S).
+            "viento_dir_pron": rumbo8(np.degrees(np.arctan2(np.sin(np.radians(hours["wind_direction_10m"])).mean(),
+                                                            np.cos(np.radians(hours["wind_direction_10m"])).mean()))),
             "viento_pron": f"{hours['wind_speed_10m'].mean():.0f} km/h, {fc['wind_kind'].mode().iloc[0]}",
             "marea": f"{tide.min():+.2f} a {tide.max():+.2f} m, "
                      + ("subiendo" if trend > 0.05 else "bajando" if trend < -0.05 else "estable"),
