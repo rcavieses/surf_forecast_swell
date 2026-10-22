@@ -209,6 +209,8 @@ def write_html(df: pd.DataFrame, daily: pd.DataFrame, summary: pd.DataFrame, pat
  }}
 </style></head><body>
 <h1>🏄 {escape(config.SPOT_NAME)}</h1>
+<p class="sub"><a href="simulacion.html"><b>Ver la simulación de la playa ↗</b></a> (cómo rompe la ola en cada
+zona, hoy, mañana y pasado)</p>
 <p class="sub">Generado {dia_hora(ahora())} (hora local) · Datos: Open-Meteo (modelos de oleaje y viento) ·
 Punto {config.LATITUDE}, {config.LONGITUDE} · Playa orientada a {config.BEACH_NORMAL_DEG}° ({compass(config.BEACH_NORMAL_DEG)})</p>
 {_webcam_html()}

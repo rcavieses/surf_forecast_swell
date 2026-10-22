@@ -13,6 +13,7 @@ on:
       - "surf_forecast/**"
       - "pronostico.py"
       - "alerta.py"
+      - "simular.py"
       - "requirements.txt"
       - "data/observaciones.csv"
       - "data/calibracion.json"
@@ -44,6 +45,20 @@ jobs:
         run: |
           python pronostico.py --no-open --refrescar
           cp output/pronostico_cerritos.html output/index.html
+
+      # La simulación necesita la imagen satelital y la batimetría; se guardan entre ejecuciones.
+      - uses: actions/cache@v4
+        with:
+          path: data/cache/teselas
+          key: teselas-v1
+      - uses: actions/cache@v4
+        with:
+          path: data/cache/batimetria_*.npz
+          key: batimetria-${{ hashFiles('data/playa/**', 'surf_forecast/playa.py') }}
+
+      - name: Simulación de la playa (hoy, mañana y pasado)
+        continue-on-error: true  # si falla, se publica igual el pronóstico
+        run: python simular.py --pronostico --no-open
 
       - name: Guardar historial
         run: |

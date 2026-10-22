@@ -65,10 +65,15 @@ La Punta de Hacienda Cerritos, playa norte, centro y sur):
 ```bash
 python simular.py                                   # pronóstico: mejor hora de las próximas 24 h
 python simular.py --fecha 2026-10-23 --hora 8       # un momento del pronóstico
+python simular.py --pronostico                      # hoy, mañana y pasado cada 3 h, con selector
 python simular.py --altura 1.5 --periodo 14 --direccion 300   # un swell inventado
 python simular.py --marea -0.8                     # forzar marea (m respecto a marea media)
 python simular.py --plantilla                       # mapa con cuadrícula para dibujar la batimetría
 ```
+
+**En línea:** https://rcavieses.github.io/surf_forecast_swell/simulacion.html — GitHub Actions corre
+`--pronostico` cada 3 horas (hoy, mañana y pasado a las 6, 9, 12, 15 y 18 h, con la marea de cada hora) y el
+reporte del pronóstico la enlaza.
 
 Genera `output/simulacion_playa.html` con la altura de rompiente y hacia dónde abre la ola en cada tramo de la
 costa, y un mapa satelital con las curvas de profundidad, los rayos de ola y los puntos donde rompe.
