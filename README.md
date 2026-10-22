@@ -35,12 +35,30 @@ Salidas:
 3. **Calificación (0-5):** según tamaño, periodo y viento (offshore = del NE en Cerritos;
    onshore = del O/SO, que suele entrar por la tarde).
 
-## Calibración
+## Observaciones y calibración
 
-Todos los parámetros del spot están en [surf_forecast/config.py](surf_forecast/config.py):
+Después de cada sesión registra lo que viste; con eso el pronóstico se ajusta a la playa real.
 
-- `SITE_FACTOR`: lo más importante. Si el pronóstico te sale alto comparado con lo que ves en el agua,
-  bájalo; si sale bajo, súbelo. Usa los CSV de `data/historial/` para comparar.
+```bash
+python observar.py agregar      # pregunta fecha, horas, altura mín/máx, sets, lado, viento, calidad y notas
+python observar.py comparar     # tus observaciones vs. lo que pronosticó el modelo
+python observar.py calibrar     # guarda el factor sugerido; el siguiente pronóstico ya lo usa
+```
+
+- Las observaciones se guardan en `data/observaciones.csv`.
+- `comparar` busca en `data/historial/` el último pronóstico emitido **antes** de tu sesión y calcula el
+  `factor_ideal`: el factor de sitio con el que el punto medio del rango pronosticado habría coincidido con
+  el punto medio de lo que viste. El factor sugerido es la mediana de todos.
+- `calibrar` escribe `data/calibracion.json`, que tiene prioridad sobre `SITE_FACTOR` de `config.py`.
+  `calibrar --factor 0.8` fija un valor a mano; `calibrar --reset` vuelve al de `config.py`.
+- Con menos de 3 observaciones el factor sugerido es solo orientativo; conviene juntar sesiones con
+  swells de distinto tamaño y periodo.
+- Como el pronóstico se guarda en el historial cada vez que corres `pronostico.py`, córrelo antes de ir al
+  agua para tener con qué comparar.
+
+Otros parámetros del spot en [surf_forecast/config.py](surf_forecast/config.py):
+
+- `SITE_FACTOR`: valor por defecto del factor de sitio si no hay calibración.
 - `BEACH_NORMAL_DEG` y `EXPOSURE_HALF_WINDOW_DEG`: orientación de la playa y qué tan amplia es la
   ventana de swell.
 

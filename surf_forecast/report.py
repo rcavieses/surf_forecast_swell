@@ -143,6 +143,28 @@ def _summary_html(summary: pd.DataFrame) -> str:
     )
 
 
+def _webcam_html() -> str:
+    if not config.WEBCAM_EMBED_URL:
+        return ""
+    site = f"<a href='{escape(config.WEBCAM_CREDIT_URL)}' target='_blank' rel='noopener'>{escape(config.WEBCAM_CREDIT_NAME)}</a>"
+    operator = (f"<a href='{escape(config.WEBCAM_OPERATOR_URL)}' target='_blank' rel='noopener'>"
+                f"{escape(config.WEBCAM_OPERATOR_NAME)}</a>")
+    return f"""<h2>Webcam en vivo</h2>
+<div class="cam"><iframe src="{escape(config.WEBCAM_EMBED_URL)}" title="Webcam de {escape(config.SPOT_NAME)}"
+ loading="lazy" allow="autoplay; fullscreen" allowfullscreen scrolling="no"></iframe></div>
+<p class="credit">Webcam cortesía de {site} ({escape(config.WEBCAM_CREDIT_URL.split("//")[1].strip("/"))}),
+operada por {operator}. Si no carga, ábrela en su sitio ↗ {site}.</p>"""
+
+
+def _calibration_note() -> str:
+    c = config.CALIBRATION
+    if not c:
+        return ", sin calibrar"
+    n = c.get("n_obs", 0)
+    origin = f"{n} {'observaciones' if n != 1 else 'observación'}" if n else "valor manual"
+    return f", calibrado con {origin} el {c['actualizado'][:10]}"
+
+
 def write_html(df: pd.DataFrame, daily: pd.DataFrame, summary: pd.DataFrame, path: Path) -> Path:
     fig = build_figure(df, daily)
     chart = fig.to_html(full_html=False, include_plotlyjs=True, post_script=MOBILE_JS,
@@ -157,6 +179,11 @@ def write_html(df: pd.DataFrame, daily: pd.DataFrame, summary: pd.DataFrame, pat
  th, td {{ padding: 8px 10px; border-bottom: 1px solid #e0e0e0; text-align: left; }}
  th {{ background: #eceff1; }}
  .note {{ font-size: 13px; color: #757575; }}
+ /* 16:9 del video + ~36px de la barra inferior del reproductor */
+ .cam {{ position: relative; width: 100%; max-width: 900px; padding-bottom: min(calc(56.25% + 36px), 542px); background: #000; border-radius: 8px; overflow: hidden; }}
+ .cam iframe {{ position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }}
+ .credit {{ font-size: 13px; color: #616161; margin: 6px 0 16px; }}
+ .credit a {{ color: #0277bd; }}
  @media (max-width: 700px) {{
   body {{ padding: 10px; }}
   h1 {{ font-size: 1.5rem; }} h2 {{ font-size: 1.15rem; }} .sub {{ font-size: 13px; }}
@@ -174,12 +201,14 @@ def write_html(df: pd.DataFrame, daily: pd.DataFrame, summary: pd.DataFrame, pat
 <h1>🏄 {escape(config.SPOT_NAME)}</h1>
 <p class="sub">Generado {datetime.now():%Y-%m-%d %H:%M} · Datos: Open-Meteo (modelos de oleaje y viento) ·
 Punto {config.LATITUDE}, {config.LONGITUDE} · Playa orientada a {config.BEACH_NORMAL_DEG}° ({compass(config.BEACH_NORMAL_DEG)})</p>
+{_webcam_html()}
 <h2>Resumen diario (horas de luz)</h2>
 {_summary_html(summary)}
 {chart}
 <p class="note">La altura de surf es una estimación de la ola en la rompiente (Komar &amp; Gaughan) ajustada por la
-orientación de la playa y un factor de sitio ({config.SITE_FACTOR}). Calibra <code>SITE_FACTOR</code> en
-<code>surf_forecast/config.py</code> comparando con lo que observes en el agua. Zonas sombreadas = noche.</p>
+orientación de la playa y un factor de sitio ({config.SITE_FACTOR}{_calibration_note()}). Registra lo que veas en el
+agua con <code>python observar.py agregar</code> y ajusta el factor con <code>python observar.py calibrar</code>.
+Zonas sombreadas = noche.</p>
 </body></html>"""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(html, encoding="utf-8")

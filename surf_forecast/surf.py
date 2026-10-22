@@ -17,12 +17,15 @@ def angle_diff(a, b):
     return d
 
 
-def breaking_height(h0, period, direction):
+def breaking_height(h0, period, direction, site_factor=None):
     """Altura de rompiente (m) de un componente de swell.
 
     Usa Komar & Gaughan (1973): Hb = 0.39 g^0.2 (T H0^2)^0.4, reducida por la
-    oblicuidad del swell respecto a la playa y por el factor de calibración del sitio.
+    oblicuidad del swell respecto a la playa y por el factor de calibración del sitio
+    (config.SITE_FACTOR si no se indica otro).
     """
+    if site_factor is None:
+        site_factor = config.SITE_FACTOR
     h0 = np.nan_to_num(np.asarray(h0, dtype=float))
     period = np.nan_to_num(np.asarray(period, dtype=float))
     hb = 0.39 * G**0.2 * (period * h0**2) ** 0.4
@@ -30,7 +33,7 @@ def breaking_height(h0, period, direction):
     theta = np.minimum(angle_diff(direction, config.BEACH_NORMAL_DEG), config.EXPOSURE_HALF_WINDOW_DEG)
     exposure = np.sqrt(np.cos(np.radians(theta * 90 / config.EXPOSURE_HALF_WINDOW_DEG)).clip(0))
     exposure = np.nan_to_num(exposure)
-    return hb * exposure * config.SITE_FACTOR
+    return hb * exposure * site_factor
 
 
 def wind_quality(speed_kmh, direction):
@@ -65,14 +68,17 @@ def _rating(row) -> int:
     return int(np.clip(round(score), 0, 5))
 
 
-def compute_surf(hourly: pd.DataFrame) -> pd.DataFrame:
+def compute_surf(hourly: pd.DataFrame, site_factor=None) -> pd.DataFrame:
     df = hourly.copy()
 
-    df["hb_primary"] = breaking_height(df["swell_wave_height"], df["swell_wave_period"], df["swell_wave_direction"])
+    df["hb_primary"] = breaking_height(df["swell_wave_height"], df["swell_wave_period"], df["swell_wave_direction"],
+                                       site_factor)
     df["hb_secondary"] = breaking_height(
-        df["secondary_swell_wave_height"], df["secondary_swell_wave_period"], df["secondary_swell_wave_direction"]
+        df["secondary_swell_wave_height"], df["secondary_swell_wave_period"], df["secondary_swell_wave_direction"],
+        site_factor,
     )
-    df["hb_windsea"] = breaking_height(df["wind_wave_height"], df["wind_wave_period"], df["wind_wave_direction"])
+    df["hb_windsea"] = breaking_height(df["wind_wave_height"], df["wind_wave_period"], df["wind_wave_direction"],
+                                       site_factor)
 
     # Los componentes se combinan por energía.
     df["surf_m"] = np.sqrt(df["hb_primary"] ** 2 + df["hb_secondary"] ** 2 + df["hb_windsea"] ** 2)
