@@ -87,32 +87,66 @@ def build_figure(df: pd.DataFrame, daily: pd.DataFrame) -> go.Figure:
     fig.update_yaxes(title_text="s", row=2, col=1, secondary_y=True, rangemode="tozero", showgrid=False)
     fig.update_yaxes(title_text="km/h", row=3, col=1, rangemode="tozero")
     fig.update_yaxes(title_text="m", row=4, col=1)
-    fig.update_xaxes(tickformat="%a %d\n%H:%M", dtick=6 * 3600 * 1000)
+    fig.update_xaxes(tickformat="%a %d<br>%H:%M", dtick=12 * 3600 * 1000)
     fig.update_layout(height=1100, template="plotly_white", hovermode="closest",
                       legend=dict(orientation="h", y=-0.05), margin=dict(l=60, r=40, t=60, b=40), bargap=0.05)
     return fig
+
+
+SUMMARY_COLUMNS = ["Día", "Surf", "Periodo", "Dir. swell", "Mejor hora", "Viento 6-10h", "Viento 13-17h",
+                   "Calificación"]
+
+# En pantallas angostas: tabla -> tarjetas, y la gráfica se compacta (márgenes, ticks por día, sin zoom
+# por arrastre para que el dedo pueda desplazar la página).
+MOBILE_JS = """
+(function () {
+  var gd = document.getElementById('{plot_id}');
+  var axes = ['xaxis', 'xaxis2', 'xaxis3', 'xaxis4'];
+  var last = null;
+  function fit() {
+    var m = window.innerWidth < 700;
+    if (m === last) return;
+    last = m;
+    var u = {
+      height: m ? 950 : 1100, dragmode: m ? false : 'zoom', 'font.size': m ? 10 : 12,
+      'margin.l': m ? 36 : 60, 'margin.r': m ? 8 : 40, 'margin.t': m ? 40 : 60,
+      'legend.font.size': m ? 10 : 12, 'hoverlabel.font.size': m ? 11 : 13
+    };
+    axes.forEach(function (a) {
+      u[a + '.dtick'] = m ? 86400000 : 43200000;
+      u[a + '.tickformat'] = m ? '%a %d' : '%a %d<br>%H:%M';
+    });
+    (gd.layout.annotations || []).forEach(function (_, i) { u['annotations[' + i + '].font.size'] = m ? 11 : 16; });
+    Plotly.relayout(gd, u);
+  }
+  fit();
+  window.addEventListener('resize', fit);
+})();
+"""
 
 
 def _summary_html(summary: pd.DataFrame) -> str:
     rows = []
     for day, r in summary.iterrows():
         color = RATING_COLORS[r["calif_max"]]
-        rows.append(
-            f"<tr><td>{pd.Timestamp(day):%a %d %b}</td><td><b>{r['surf_ft']} ft</b> ({r['surf_m']} m)</td>"
-            f"<td>{r['periodo_s']} s</td><td>{r['dir_swell']}</td><td>{r['mejor_hora']}</td>"
-            f"<td>{r['viento_mañana']}</td><td>{r['viento_tarde']}</td>"
-            f"<td style='background:{color}'>{'★' * r['calif_max']}{'☆' * (5 - r['calif_max'])} {escape(r['calif'])}</td></tr>"
-        )
+        cells = [
+            f"{pd.Timestamp(day):%a %d %b}", f"<b>{r['surf_ft']} ft</b> ({r['surf_m']} m)", f"{r['periodo_s']} s",
+            r["dir_swell"], r["mejor_hora"], r["viento_mañana"], r["viento_tarde"],
+            f"{'★' * r['calif_max']}{'☆' * (5 - r['calif_max'])} {escape(r['calif'])}",
+        ]
+        tds = [f"<td data-label='{label}'><span>{cell}</span></td>" for label, cell in zip(SUMMARY_COLUMNS, cells)]
+        tds[-1] = tds[-1].replace("<td ", f"<td style='background:{color}' ", 1)
+        rows.append("<tr>" + "".join(tds) + "</tr>")
     return (
-        "<table><thead><tr><th>Día</th><th>Surf</th><th>Periodo</th><th>Dir. swell</th><th>Mejor hora</th>"
-        "<th>Viento 6-10h</th><th>Viento 13-17h</th><th>Calificación</th></tr></thead><tbody>"
-        + "".join(rows) + "</tbody></table>"
+        "<table class='resumen'><thead><tr>" + "".join(f"<th>{c}</th>" for c in SUMMARY_COLUMNS)
+        + "</tr></thead><tbody>" + "".join(rows) + "</tbody></table>"
     )
 
 
 def write_html(df: pd.DataFrame, daily: pd.DataFrame, summary: pd.DataFrame, path: Path) -> Path:
     fig = build_figure(df, daily)
-    chart = fig.to_html(full_html=False, include_plotlyjs=True)
+    chart = fig.to_html(full_html=False, include_plotlyjs=True, post_script=MOBILE_JS,
+                        config={"responsive": True, "displaylogo": False, "scrollZoom": False})
     html = f"""<!doctype html>
 <html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Surf {escape(config.SPOT_NAME)}</title>
@@ -123,6 +157,19 @@ def write_html(df: pd.DataFrame, daily: pd.DataFrame, summary: pd.DataFrame, pat
  th, td {{ padding: 8px 10px; border-bottom: 1px solid #e0e0e0; text-align: left; }}
  th {{ background: #eceff1; }}
  .note {{ font-size: 13px; color: #757575; }}
+ @media (max-width: 700px) {{
+  body {{ padding: 10px; }}
+  h1 {{ font-size: 1.5rem; }} h2 {{ font-size: 1.15rem; }} .sub {{ font-size: 13px; }}
+  table.resumen, table.resumen tbody, table.resumen tr, table.resumen td {{ display: block; width: 100%; box-sizing: border-box; }}
+  table.resumen {{ background: none; font-size: 14px; }}
+  table.resumen thead {{ display: none; }}
+  table.resumen tr {{ background: white; border: 1px solid #e0e0e0; border-radius: 10px; margin-bottom: 10px; overflow: hidden; }}
+  table.resumen td {{ display: flex; justify-content: space-between; gap: 12px; padding: 6px 12px; border-bottom: 1px solid #f0f0f0; text-align: right; }}
+  table.resumen td::before {{ content: attr(data-label); font-weight: 600; color: #616161; text-align: left; }}
+  table.resumen td:first-child {{ background: #eceff1; font-weight: 700; }}
+  table.resumen td:first-child::before {{ content: none; }}
+  table.resumen td:last-child {{ border-bottom: none; }}
+ }}
 </style></head><body>
 <h1>🏄 {escape(config.SPOT_NAME)}</h1>
 <p class="sub">Generado {datetime.now():%Y-%m-%d %H:%M} · Datos: Open-Meteo (modelos de oleaje y viento) ·
