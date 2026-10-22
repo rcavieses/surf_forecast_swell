@@ -66,6 +66,7 @@ La Punta de Hacienda Cerritos, playa norte, centro y sur):
 python simular.py                                   # pronóstico: mejor hora de las próximas 24 h
 python simular.py --fecha 2026-10-23 --hora 8       # un momento del pronóstico
 python simular.py --altura 1.5 --periodo 14 --direccion 300   # un swell inventado
+python simular.py --marea -0.8                     # forzar marea (m respecto a marea media)
 python simular.py --plantilla                       # mapa con cuadrícula para dibujar la batimetría
 ```
 
@@ -81,6 +82,9 @@ costa, y un mapa satelital con las curvas de profundidad, los rayos de ola y los
 - **Oleaje** ([surf_forecast/simulacion.py](surf_forecast/simulacion.py)): trazado de rayos con refracción,
   asomeramiento y rompiente a `H = 0.78·h`; cada componente (swell 1, swell 2, mar de viento) se simula por
   separado y se combinan por energía.
+- **Marea:** las profundidades se toman a marea media y se les suma la marea del momento (del pronóstico,
+  respecto a su promedio). El mapa marca en rojo el fondo descubierto y en amarillo el que aflora en el
+  seno de la ola (la roca de la punta aflora con marea baja). Hay un acercamiento a La Punta.
 - **Limitaciones:** no hay difracción (detrás de la punta la ola real es algo mayor), ni corrientes, ni cambios de
   los bancos de arena. Fuera de la zona que dibujaste la batimetría es sintética.
 - La imagen satelital (Esri World Imagery) se descarga a `data/cache/` y no se sube al repo.

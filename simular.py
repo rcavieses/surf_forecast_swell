@@ -51,6 +51,8 @@ def main():
     p.add_argument("--altura", type=float, help="swell manual: altura mar adentro (m)")
     p.add_argument("--periodo", type=float, help="swell manual: periodo (s)")
     p.add_argument("--direccion", type=float, help="swell manual: de dónde viene (grados)")
+    p.add_argument("--marea", type=float, help="nivel de marea en m respecto a marea media (p. ej. -0.8 = baja); "
+                                               "por defecto, la del pronóstico")
     p.add_argument("--plantilla", action="store_true", help="mapa con cuadrícula para dibujar la batimetría")
     p.add_argument("--no-open", action="store_true")
     a = p.parse_args()
@@ -62,6 +64,7 @@ def main():
                                        "curvas sobre una captura. Las líneas blancas son la batimetría actual.</p>")
     else:
         simple = None
+        marea, tendencia = a.marea if a.marea is not None else 0.0, ""
         if a.altura is not None:
             if a.periodo is None or a.direccion is None:
                 sys.exit("Con --altura indica también --periodo y --direccion.")
@@ -77,17 +80,30 @@ def main():
                      if r[f"{pre}wave_height"] >= 0.1 and r[f"{pre}wave_period"] >= 4]
             simple = (r["surf_min_m"], r["surf_max_m"])
             title = f"Playa Cerritos · {dia_hora(t)}"
+            if a.marea is None:
+                # El nivel del modelo no está centrado en 0: se toma como marea media el promedio pronosticado.
+                tide = df["sea_level_height_msl"]
+                marea = float(tide.loc[t] - tide.mean())
+                nxt = tide.shift(-1).loc[t]
+                tendencia = "" if pd.isna(nxt) else ", subiendo" if nxt > tide.loc[t] else ", bajando"
             print(f"Pronóstico {dia_hora(t)}: rompiente simple {simple[0]:.1f}-{simple[1]:.1f} m")
+        marea_txt = (f"{marea:+.2f} m respecto a marea media{tendencia}"
+                     + (" (baja)" if marea < -0.4 else " (alta)" if marea > 0.4 else " (media)"))
+        print(f"Marea: {marea_txt}")
         results = []
         for c in comps:
             print(f"Simulando {c['nombre']}: {c['altura']:.1f} m, {c['periodo']:.0f} s, desde {c['direccion']:.0f}°…")
-            res = sim.propagar(c["altura"], c["periodo"], c["direccion"])
+            res = sim.propagar(c["altura"], c["periodo"], c["direccion"], marea=marea)
             res["rompientes"]["componente"] = c["nombre"]
             results.append(res)
         perfil = sim.perfil_playa([r["rompientes"] for r in results])
         main_res = max(results, key=lambda r: r["entrada"]["altura"])
-        fig = rp.mapa(pd.concat([r["rompientes"] for r in results]), main_res["trayectorias"])
-        out = rp.write_html(ROOT / "output" / "simulacion_playa.html", title, comps, perfil, fig, simple)
+        ola = float(perfil.loc[perfil["H"] > 0, "H"].median()) if (perfil["H"] > 0).any() else None
+        fig = rp.mapa(pd.concat([r["rompientes"] for r in results]), main_res["trayectorias"], marea=marea, ola=ola)
+        all_breaks = pd.concat([r["rompientes"] for r in results])
+        fig_punta = rp.mapa(all_breaks, main_res["trayectorias"], marea=marea, ola=ola, detalle=True)
+        out = rp.write_html(ROOT / "output" / "simulacion_playa.html", title, comps, perfil, fig, simple,
+                            marea_txt=marea_txt, fig_punta=fig_punta)
         print()
         for lo, hi, n in rp.ZONAS:
             q = perfil[(perfil["s"] >= lo) & (perfil["s"] < hi) & (perfil["H"] > 0)]

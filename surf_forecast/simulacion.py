@@ -42,12 +42,20 @@ def _muestrear(grid, xs, ys, px, py):
             + grid[i + 1, j] * (1 - tx) * ty + grid[i + 1, j + 1] * tx * ty)
 
 
-def propagar(altura, periodo, direccion, guardar_cada=4) -> dict:
-    """Simula un tren de olas mar adentro (altura m, periodo s, dirección de donde viene en grados).
+def profundidad(marea: float = 0.0) -> dict:
+    """Batimetría con la marea aplicada (m respecto a marea media). Lo que queda a 0 o menos está descubierto."""
+    b = batimetria()
+    h = np.where(b["tierra"], 0.0, np.maximum(b["h"] + marea, 0.0))
+    return {**b, "h": h}
+
+
+def propagar(altura, periodo, direccion, marea=0.0, guardar_cada=4) -> dict:
+    """Simula un tren de olas mar adentro (altura m, periodo s, dirección de donde viene en grados) con el
+    nivel de marea indicado (m respecto a marea media).
 
     Devuelve las rompientes (DataFrame) y las trayectorias de los rayos (para dibujar).
     """
-    b = batimetria()
+    b = profundidad(marea)
     xs, ys, h = b["x"], b["y"], b["h"]
     c_grid, cg_grid = onda(np.where(h > 0, h, 0.05), periodo)
     dcy, dcx = np.gradient(c_grid, ys, xs)

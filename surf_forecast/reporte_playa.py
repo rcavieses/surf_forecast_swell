@@ -17,6 +17,7 @@ from .playa import IMAGEN_ATRIBUCION, BATI_USUARIO_FILE, batimetria, costa, tese
 ZONAS = [(-1500, -150, "Rocas (norte)"), (-150, 300, "La Punta"), (300, 1200, "Playa norte"),
          (1200, 2200, "Playa centro"), (2200, 3000, "Playa sur")]
 VISTA = (-900, 1100, -1900, 500)  # x0, x1, y0, y1 del mapa al abrir (la punta y la playa)
+VISTA_PUNTA = (-120, 380, -230, 170)  # acercamiento a La Punta, donde está tu batimetría
 LADO_COLOR = {"izquierda": "#1565c0", "derecha": "#ef6c00", "cierra": "#757575", "": "#bdbdbd"}
 
 
@@ -33,23 +34,57 @@ def _imagenes(x0, x1, y0, y1, z):
     return imgs
 
 
-def mapa(rompientes: pd.DataFrame | None = None, trayectorias=None, cuadricula: float | None = None) -> go.Figure:
+def _expuesto(fig, marea: float, ola: float | None, vista):
+    """Fondo descubierto por la marea y fondo que aflora en el seno de la ola (~0.35·H bajo el nivel medio)."""
+    b0 = batimetria()
+    h = b0["h"] + marea
+    x0, x1, y0, y1 = vista
+    kx, ky = (b0["x"] >= x0) & (b0["x"] <= x1), (b0["y"] >= y0) & (b0["y"] <= y1)
+    water = ~b0["tierra"]
+    cat = np.full(h.shape, np.nan)
+    if ola:
+        cat[water & (h > 0) & (h < 0.35 * ola)] = 1
+    cat[water & (h <= 0)] = 2
+    cat = cat[np.ix_(ky, kx)]
+    if np.isnan(cat).all():
+        return
+    fig.add_trace(go.Heatmap(
+        x=b0["x"][kx], y=b0["y"][ky], z=cat, zmin=1, zmax=2, showscale=False, hoverongaps=False,
+        colorscale=[[0, "rgba(255,193,7,0.55)"], [0.5, "rgba(255,193,7,0.55)"], [0.5, "rgba(229,57,53,0.7)"],
+                    [1, "rgba(229,57,53,0.7)"]],
+        text=np.where(cat == 2, "descubierto con esta marea", "aflora entre olas"),
+        hovertemplate="%{text}<extra></extra>", name="Fondo expuesto"))
+    # Entradas de leyenda (un heatmap no tiene leyenda propia).
+    for color, label in [("rgba(229,57,53,0.9)", "Descubierto por la marea"),
+                         ("rgba(255,193,7,0.9)", "Aflora entre olas")]:
+        fig.add_trace(go.Scatter(x=[None], y=[None], mode="markers", marker=dict(color=color, size=10,
+                                 symbol="square"), name=label))
+
+
+def mapa(rompientes: pd.DataFrame | None = None, trayectorias=None, cuadricula: float | None = None,
+         marea: float = 0.0, ola: float | None = None, detalle: bool = False) -> go.Figure:
+    """Mapa general de la costa o, con detalle=True, acercamiento a La Punta."""
     b = batimetria()
-    # Malla más gruesa (24 m) y recortada a la vista ampliada: basta para dibujar curvas y pesa mucho menos.
-    x0, x1, y0, y1 = VISTA
-    kx = (b["x"] >= x0 - 1500) & (b["x"] <= x1 + 1500)
-    ky = (b["y"] >= y0 - 1500) & (b["y"] <= y1 + 1500)
-    h = np.where(b["tierra"], np.nan, b["h"])[np.ix_(ky, kx)][::2, ::2].round(1)
+    vista = VISTA_PUNTA if detalle else VISTA
+    # Malla recortada (y más gruesa en el mapa general): basta para dibujar curvas y pesa mucho menos.
+    # Las curvas son de profundidad con la marea del momento.
+    x0, x1, y0, y1 = vista
+    margin, step = (100, 1) if detalle else (1500, 2)
+    kx = (b["x"] >= x0 - margin) & (b["x"] <= x1 + margin)
+    ky = (b["y"] >= y0 - margin) & (b["y"] <= y1 + margin)
+    h = np.where(b["tierra"], np.nan, b["h"] + marea)[np.ix_(ky, kx)][::step, ::step].round(2)
     fig = go.Figure()
-    for start, end, size in [(1, 5, 1), (10, 20, 10)]:  # zona de rompiente y luego cada 10 m
+    _expuesto(fig, marea, ola, vista)
+    levels = [(0.5, 3, 0.5)] if detalle else [(1, 5, 1), (10, 20, 10)]  # zona de rompiente y luego cada 10 m
+    for start, end, size in levels:
         fig.add_trace(go.Contour(
-            x=b["x"][kx][::2], y=b["y"][ky][::2], z=h, showscale=False, hoverinfo="skip", showlegend=False,
+            x=b["x"][kx][::step], y=b["y"][ky][::step], z=h, showscale=False, hoverinfo="skip", showlegend=False,
             contours=dict(coloring="lines", showlabels=True, start=start, end=end, size=size,
                           labelfont=dict(color="white", size=10)),
             line=dict(width=1), colorscale=[[0, "rgba(255,255,255,0.8)"], [1, "rgba(255,255,255,0.8)"]]))
     if trayectorias:
         xs, ys = [], []
-        for path in trayectorias[::7]:
+        for path in trayectorias[::2 if detalle else 7]:
             if len(path) > 1:
                 p = np.array(path).round(0)
                 xs += list(p[:, 0]) + [None]
@@ -57,7 +92,7 @@ def mapa(rompientes: pd.DataFrame | None = None, trayectorias=None, cuadricula: 
         fig.add_trace(go.Scatter(x=xs, y=ys, mode="lines", line=dict(color="rgba(255,255,255,0.35)", width=1),
                                  hoverinfo="skip", name="Rayos (swell principal)"))
     if rompientes is not None and not rompientes.empty:
-        r = rompientes
+        r = rompientes[rompientes["x"].between(x0 - 50, x1 + 50) & rompientes["y"].between(y0 - 50, y1 + 50)]
         fig.add_trace(go.Scatter(
             x=r["x"], y=r["y"], mode="markers", name="Rompiente",
             marker=dict(size=7, color=r["H"], colorscale="Turbo", cmin=0, cmax=max(2.5, r["H"].quantile(0.95)),
@@ -78,11 +113,11 @@ def mapa(rompientes: pd.DataFrame | None = None, trayectorias=None, cuadricula: 
     if cuadricula:
         _cuadricula(fig, cuadricula)
     fig.update_layout(
-        images=_imagenes(-6000, 2000, -3500, 3000, 15) + _imagenes(*VISTA, 16),
-        template="plotly_dark", height=720, margin=dict(l=10, r=10, t=10, b=10),
+        images=_imagenes(*vista, 18) if detalle else _imagenes(-6000, 2000, -3500, 3000, 15) + _imagenes(*VISTA, 16),
+        template="plotly_dark", height=560 if detalle else 720, margin=dict(l=10, r=10, t=10, b=10),
         legend=dict(orientation="h", y=0.01, x=0.01, bgcolor="rgba(0,0,0,0.4)"),
-        xaxis=dict(range=VISTA[:2], showgrid=False, zeroline=False, visible=False),
-        yaxis=dict(range=VISTA[2:], showgrid=False, zeroline=False, visible=False, scaleanchor="x"),
+        xaxis=dict(range=vista[:2], showgrid=False, zeroline=False, visible=False),
+        yaxis=dict(range=vista[2:], showgrid=False, zeroline=False, visible=False, scaleanchor="x"),
         dragmode="pan",
     )
     return fig
@@ -141,21 +176,28 @@ def _resumen_zonas(p: pd.DataFrame) -> str:
 
 
 def write_html(path: Path, titulo: str, componentes: list[dict], p: pd.DataFrame | None, fig_mapa: go.Figure,
-               simple: tuple[float, float] | None = None, extra_html: str = "") -> Path:
+               simple: tuple[float, float] | None = None, extra_html: str = "", marea_txt: str = "",
+               fig_punta: go.Figure | None = None) -> Path:
     cfg = {"responsive": True, "displaylogo": False, "scrollZoom": True, "locale": "es"}
     comp_html = "".join(f"<li>{escape(c['nombre'])}: {c['altura']:.1f} m · {c['periodo']:.0f} s · "
                         f"desde {c['direccion']:.0f}°</li>" for c in componentes)
     body = [f"<h1>🏄 {escape(titulo)}</h1>",
             f"<p class='sub'>Simulación de oleaje sobre la playa · generada {dia_hora(ahora())}</p>"]
     if componentes:
-        body.append(f"<ul class='comp'>{comp_html}</ul>")
+        body.append(f"<ul class='comp'>{comp_html}"
+                    + (f"<li>Marea: {escape(marea_txt)}</li>" if marea_txt else "") + "</ul>")
     if p is not None:
         body += [_resumen_zonas(p), "<h2>Altura y lado a lo largo de la costa</h2>",
                  perfil(p, simple).to_html(full_html=False, include_plotlyjs=False, config=cfg)]
+    if fig_punta is not None:
+        body += ["<h2>La Punta (acercamiento)</h2>",
+                 fig_punta.to_html(full_html=False, include_plotlyjs=False, config=cfg)]
     body += ["<h2>Mapa</h2>", fig_mapa.to_html(full_html=False, include_plotlyjs=False, config=cfg), extra_html,
              f"""<p class="note"><b>Cómo leerlo:</b> cada punto es donde rompe un rayo de ola (color = altura). El lado
 es hacia dónde abre la ola visto por el surfista, según el ángulo entre la ola y el fondo en la rompiente
-(menos de 5° = cierra). <b>Limitaciones:</b> la batimetría es
+(menos de 5° = cierra). Las profundidades incluyen la marea del momento (tus profundidades se toman a marea
+media); en rojo, el fondo que la marea deja descubierto, y en amarillo el que aflora en el seno de la ola
+(menos de ~0.35 veces la altura de rompiente bajo el nivel del agua). <b>Limitaciones:</b> la batimetría es
 {"una mezcla de tus profundidades y " if BATI_USUARIO_FILE.exists() else ""}un perfil de equilibrio sintético
 (Dean) que no conoce bancos de arena ni la forma real de la roca; no hay difracción, así que detrás de la punta
 la ola real es algo mayor que la simulada. {escape(IMAGEN_ATRIBUCION)}.</p>"""]

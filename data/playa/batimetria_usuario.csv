@@ -1,5 +1,6 @@
 # Batimetria dibujada de memoria por el usuario (2026-10-22) sobre una imagen satelital de la punta;
 # georreferenciada con el techo de Hacienda Cerritos y la construccion redonda de la playa.
+# Profundidades referidas a marea media; la simulacion les suma la marea del momento.
 lat,lon,profundidad_m,descripcion
 23.328614,-110.178321,2.5,"linea morada: arena, no mas de 2.5 m"
 23.328579,-110.178252,2.5,"linea morada: arena, no mas de 2.5 m"
@@ -78,16 +79,16 @@ lat,lon,profundidad_m,descripcion
 23.328526,-110.176215,1.8,linea roja interna: 1.8 m o menos
 23.328480,-110.176155,1.8,linea roja interna: 1.8 m o menos
 23.328434,-110.176095,1.8,linea roja interna: 1.8 m o menos
-23.329468,-110.178018,1.0,"zona turquesa: roca, ~10 m mas alla del risco (1.0 m estimado)"
-23.329406,-110.178059,1.0,"zona turquesa: roca, ~10 m mas alla del risco (1.0 m estimado)"
-23.329344,-110.178099,1.0,"zona turquesa: roca, ~10 m mas alla del risco (1.0 m estimado)"
-23.329281,-110.178138,1.0,"zona turquesa: roca, ~10 m mas alla del risco (1.0 m estimado)"
-23.329219,-110.178178,1.0,"zona turquesa: roca, ~10 m mas alla del risco (1.0 m estimado)"
-23.329159,-110.178222,1.0,"zona turquesa: roca, ~10 m mas alla del risco (1.0 m estimado)"
-23.329100,-110.178267,1.0,"zona turquesa: roca, ~10 m mas alla del risco (1.0 m estimado)"
-23.329043,-110.178315,1.0,"zona turquesa: roca, ~10 m mas alla del risco (1.0 m estimado)"
-23.328986,-110.178364,1.0,"zona turquesa: roca, ~10 m mas alla del risco (1.0 m estimado)"
-23.328934,-110.178418,1.0,"zona turquesa: roca, ~10 m mas alla del risco (1.0 m estimado)"
+23.329468,-110.178018,0.5,"zona turquesa: roca, ~10 m mas alla del risco; aflora con marea baja y al pasar la ola (0.5 m estimado)"
+23.329406,-110.178059,0.5,"zona turquesa: roca, ~10 m mas alla del risco; aflora con marea baja y al pasar la ola (0.5 m estimado)"
+23.329344,-110.178099,0.5,"zona turquesa: roca, ~10 m mas alla del risco; aflora con marea baja y al pasar la ola (0.5 m estimado)"
+23.329281,-110.178138,0.5,"zona turquesa: roca, ~10 m mas alla del risco; aflora con marea baja y al pasar la ola (0.5 m estimado)"
+23.329219,-110.178178,0.5,"zona turquesa: roca, ~10 m mas alla del risco; aflora con marea baja y al pasar la ola (0.5 m estimado)"
+23.329159,-110.178222,0.5,"zona turquesa: roca, ~10 m mas alla del risco; aflora con marea baja y al pasar la ola (0.5 m estimado)"
+23.329100,-110.178267,0.5,"zona turquesa: roca, ~10 m mas alla del risco; aflora con marea baja y al pasar la ola (0.5 m estimado)"
+23.329043,-110.178315,0.5,"zona turquesa: roca, ~10 m mas alla del risco; aflora con marea baja y al pasar la ola (0.5 m estimado)"
+23.328986,-110.178364,0.5,"zona turquesa: roca, ~10 m mas alla del risco; aflora con marea baja y al pasar la ola (0.5 m estimado)"
+23.328934,-110.178418,0.5,"zona turquesa: roca, ~10 m mas alla del risco; aflora con marea baja y al pasar la ola (0.5 m estimado)"
 23.329732,-110.177904,2.2,canal de corriente junto al risco (2.2 m estimado)
 23.329551,-110.177943,2.2,canal de corriente junto al risco (2.2 m estimado)
 23.329370,-110.178002,2.2,canal de corriente junto al risco (2.2 m estimado)
