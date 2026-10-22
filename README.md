@@ -61,6 +61,13 @@ GitHub Actions (y cada vez que subes observaciones o cambios al código):
 
 Después de cada sesión registra lo que viste; con eso el pronóstico se ajusta a la playa real.
 
+**Con interfaz web** (PC o Termux): `python observar_web.py` abre http://localhost:8001 con un formulario para
+registrar sesiones, tus sesiones comparadas con el pronóstico (con botón para eliminar), la calibración y un
+botón **Sincronizar con GitHub** (commit de `data/`, pull y push). En Termux entra a esa dirección en Chrome y
+deja la terminal abierta; se cierra con Ctrl+C.
+
+**Desde la terminal:**
+
 ```bash
 python observar.py agregar      # pregunta fecha, horas, altura mín/máx, sets, lado, viento, calidad y notas
 python observar.py listar       # sesiones registradas, numeradas
@@ -70,6 +77,17 @@ python observar.py calibrar     # guarda el factor sugerido; el siguiente pronó
 ```
 
 - Las observaciones se guardan en `data/observaciones.csv`.
+- **Viento** en escala ordinal, comparable con el pronóstico:
+
+  | Nivel | En el agua | Pronóstico |
+  |---|---|---|
+  | 0 sin viento | glassy, espejo | < 5 km/h |
+  | 1 ligero | apenas riza la superficie | 5–12 km/h |
+  | 2 moderado | algo de viento, superficie algo picada | 12–20 km/h |
+  | 3 fuerte | picado, cuesta remar | 20–30 km/h |
+  | 4 muy fuerte | casi imposible surfear | > 30 km/h |
+
+  Además hay un campo libre para el detalle (dirección, a qué hora cambió, etc.).
 - `comparar` muestra, por sesión, lo que viste junto a lo pronosticado (altura, lado, viento, calidad) y
   la marea que hubo. También indica si el modelo tiende a sobreestimar o subestimar la calidad.
 - Para la altura busca en `data/historial/` el último pronóstico emitido **antes** de tu sesión y calcula el

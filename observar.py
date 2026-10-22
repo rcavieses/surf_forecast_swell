@@ -3,7 +3,7 @@
 Uso:
     python observar.py agregar             # te pregunta los datos uno por uno
     python observar.py agregar --fecha 2026-10-21 --inicio 10 --fin 18 --min 1.2 --max 1.8 --sets 2 \
-        --lado izquierda --viento "onshore 10-15h, calma, regresa 18h" --calidad 4 --notas "..."
+        --lado izquierda --viento-nivel moderado --viento "onshore 10-15h, regresa 18h" --calidad 4 --notas "..."
     python observar.py listar              # sesiones registradas, numeradas
     python observar.py eliminar 2          # borra la sesión número 2 (pide confirmación)
     python observar.py comparar            # observaciones vs. pronóstico y factor sugerido
@@ -19,13 +19,8 @@ from datetime import date
 from surf_forecast import config
 from surf_forecast import observaciones as obs
 from surf_forecast.fechas import ahora
-
-LADOS = ["izquierda", "derecha", "ambos", "cerrada"]
-
-
-def _hhmm(value: str) -> str:
-    h, _, m = value.strip().partition(":")
-    return f"{int(h):02d}:{int(m or 0):02d}"
+from surf_forecast.observaciones import (LADOS, VIENTO_NIVELES, hhmm, parse_calidad, parse_lado,
+                                         parse_viento_nivel, viento_nivel_texto)
 
 
 def _ask(label: str, default="", cast=str, required=False):
@@ -39,50 +34,39 @@ def _ask(label: str, default="", cast=str, required=False):
             print("  Valor no válido, intenta de nuevo.")
 
 
-def _lado(value: str) -> str:
-    value = value.strip().lower()
-    match = [l for l in LADOS if l.startswith(value)] if value else [""]
-    if len(match) != 1:
-        raise ValueError(value)
-    return match[0]
-
-
-def _calidad(value: str) -> str:
-    if value and not 1 <= int(value) <= 5:
-        raise ValueError(value)
-    return value
-
-
 def cmd_agregar(a):
     interactive = a.min is None
     if interactive:
         print("Nueva observación (Enter acepta el valor entre corchetes).")
         a.fecha = _ask("Fecha (AAAA-MM-DD)", a.fecha, lambda v: date.fromisoformat(v).isoformat())
-        a.inicio = _ask("Hora inicio (HH o HH:MM)", a.inicio or "08:00", _hhmm)
-        a.fin = _ask("Hora fin", a.fin or "12:00", _hhmm)
+        a.inicio = _ask("Hora inicio (HH o HH:MM)", a.inicio or "08:00", hhmm)
+        a.fin = _ask("Hora fin", a.fin or "12:00", hhmm)
         a.min = _ask("Altura mínima típica (m)", "", float, required=True)
         a.max = _ask("Altura máxima típica (m)", "", float, required=True)
         a.sets = _ask("Sets más grandes (m, opcional)", "", float)
-        a.lado = _ask(f"Lado ({'/'.join(LADOS)}, opcional)", "", _lado)
-        a.viento = _ask("Viento (texto libre, opcional)")
-        a.calidad = _ask("Calidad 1-5 (opcional)", "", _calidad)
+        a.lado = _ask(f"Lado ({'/'.join(LADOS)}, opcional)", "", parse_lado)
+        print("Viento: " + ", ".join(f"{i} {n}" for i, n in enumerate(VIENTO_NIVELES)))
+        a.viento_nivel = _ask("Nivel de viento (número o nombre, opcional)", "", parse_viento_nivel)
+        a.viento = _ask("Detalle del viento (opcional, p. ej. onshore desde las 10)")
+        a.calidad = _ask("Calidad 1-5 (opcional)", "", parse_calidad)
         a.notas = _ask("Notas (opcional)")
     elif a.max is None:
         sys.exit("Falta --max.")
 
-    if a.max < a.min:
-        a.min, a.max = a.max, a.min
-    obs.add_observation({
-        "fecha": a.fecha, "hora_inicio": _hhmm(a.inicio or "08:00"), "hora_fin": _hhmm(a.fin or "12:00"),
-        "altura_min_m": a.min, "altura_max_m": a.max, "sets_m": a.sets if a.sets is not None else "",
-        "lado": a.lado or "", "viento": a.viento or "", "calidad": a.calidad or "", "notas": a.notas or "",
-    })
+    try:
+        o = obs.build_observation(a.fecha, a.inicio or "08:00", a.fin or "12:00", a.min, a.max,
+                                  "" if a.sets is None else a.sets, a.lado or "", a.viento_nivel or "", a.viento,
+                                  a.calidad or "", a.notas)
+    except ValueError as e:
+        sys.exit(str(e))
+    obs.add_observation(o)
     print(f"Guardada en {obs.OBS_FILE}")
     cmd_comparar(a)
 
 
 def _describe(o) -> str:
     extra = ", ".join(v for v in [f"sets {o['sets_m']} m" if o["sets_m"] else "", o["lado"],
+                                  f"viento {viento_nivel_texto(o['viento_nivel'])}" if o["viento_nivel"] else "",
                                   f"calidad {o['calidad']}" if o["calidad"] else "", o["notas"]] if v)
     return (f"{o['fecha']} {o['hora_inicio']}-{o['hora_fin']}: {o['altura_min_m']}-{o['altura_max_m']} m"
             + (f" ({extra})" if extra else ""))
@@ -129,7 +113,10 @@ def cmd_comparar(_a):
         for label, seen, fc in [("Altura", f"{r['visto_m']} m" + (f", sets {r['sets_m']} m" if r["sets_m"] else ""),
                                  f"{r.get('pronóstico_m', '')} m"),
                                 ("Lado", r["lado"], r.get("lado_pron", "")),
-                                ("Viento", r["viento_visto"], r.get("viento_pron", "")),
+                                ("Viento", " · ".join(v for v in [viento_nivel_texto(r["viento_nivel"]),
+                                                                  r["viento_visto"]] if v),
+                                 f"{viento_nivel_texto(r['viento_nivel_pron'])} ({r['viento_pron']})"
+                                 if r.get("viento_pron") else ""),
                                 ("Calidad", r["calidad"], r.get("calif_pron", ""))]:
             print(f"  {label:<8} visto: {seen or '-':<28} pronóstico: {fc or '-'}")
         if r.get("marea"):
@@ -155,9 +142,8 @@ def cmd_comparar(_a):
 
 def cmd_calibrar(a):
     if a.reset:
-        if config.CALIB_FILE.exists():
-            config.CALIB_FILE.unlink()
-        print("Calibración borrada; se usa SITE_FACTOR de config.py.")
+        obs.reset_calibration()
+        print(f"Calibración borrada; se usa SITE_FACTOR de config.py ({config.SITE_FACTOR}).")
         return
     if a.factor is not None:
         factor, n = a.factor, 0
@@ -166,8 +152,9 @@ def cmd_calibrar(a):
         if sug is None:
             return
         factor, n = sug
+    old = config.SITE_FACTOR
     path = obs.save_calibration(factor, n)
-    print(f"\nSITE_FACTOR {config.SITE_FACTOR} -> {factor} guardado en {path}")
+    print(f"\nSITE_FACTOR {old} -> {factor} guardado en {path}")
     print("Corre `python pronostico.py` para regenerar el reporte con el nuevo factor.")
 
 
@@ -186,9 +173,11 @@ def main():
     ag.add_argument("--min", type=float, help="altura mínima típica (m)")
     ag.add_argument("--max", type=float, help="altura máxima típica (m)")
     ag.add_argument("--sets", type=float, help="sets más grandes (m)")
-    ag.add_argument("--lado", type=_lado, help="/".join(LADOS))
-    ag.add_argument("--viento", help="texto libre")
-    ag.add_argument("--calidad", type=_calidad, help="1-5")
+    ag.add_argument("--lado", type=parse_lado, help="/".join(LADOS))
+    ag.add_argument("--viento-nivel", type=parse_viento_nivel,
+                    help="0-4: " + ", ".join(f"{i} {n}" for i, n in enumerate(VIENTO_NIVELES)))
+    ag.add_argument("--viento", help="detalle del viento, texto libre")
+    ag.add_argument("--calidad", type=parse_calidad, help="1-5")
     ag.add_argument("--notas")
     ag.set_defaults(func=cmd_agregar)
 

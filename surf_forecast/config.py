@@ -25,6 +25,7 @@ EXPOSURE_HALF_WINDOW_DEG = 85
 # `python observar.py calibrar` lo calcula a partir de tus observaciones y lo guarda en
 # data/calibracion.json, que tiene prioridad sobre este valor.
 SITE_FACTOR = 0.85
+DEFAULT_SITE_FACTOR = SITE_FACTOR
 CALIB_FILE = Path(__file__).resolve().parent.parent / "data" / "calibracion.json"
 CALIBRATION = json.loads(CALIB_FILE.read_text(encoding="utf-8")) if CALIB_FILE.exists() else None
 if CALIBRATION:
@@ -37,6 +38,9 @@ PEAK_ANGLE_DEG = 10
 # Segundo modelo de oleaje para estimar la confianza del pronóstico (el principal es el que
 # Open-Meteo elige por defecto, Météo-France en esta zona). ECMWF no tiene datos en este punto.
 COMPARISON_WAVE_MODEL = "ncep_gfswave016"
+
+# Reporte publicado por GitHub Actions (enlace desde observar_web.py).
+REPORT_URL = "https://rcavieses.github.io/surf_forecast_swell/"
 
 # Alertas (alerta.py): avisa si en los próximos ALERT_DAYS días hay calificación >= ALERT_MIN_RATING.
 ALERT_MIN_RATING = 4
