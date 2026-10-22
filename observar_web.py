@@ -9,6 +9,7 @@ Solo escucha en este equipo (127.0.0.1); no queda expuesta a la red.
 """
 
 import argparse
+import os
 import subprocess
 import sys
 import webbrowser
@@ -36,8 +37,9 @@ def sync_github() -> tuple[bool, str]:
     log = []
 
     def git(*args):
+        # GIT_TERMINAL_PROMPT=0: sin credenciales, git falla en vez de quedarse esperando un usuario.
         r = subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True, encoding="utf-8",
-                           errors="replace", timeout=120)
+                           errors="replace", timeout=120, env={**os.environ, "GIT_TERMINAL_PROMPT": "0"})
         log.append(f"$ git {' '.join(args)}\n{(r.stdout + r.stderr).strip()}".strip())
         return r.returncode
 
@@ -47,6 +49,9 @@ def sync_github() -> tuple[bool, str]:
             return False, "\n\n".join(log)
         for args in (("pull", "--rebase", "--autostash"), ("push",)):
             if git(*args):
+                if args == ("push",):
+                    log.append("Si falta iniciar sesión en GitHub (Termux): "
+                               "pkg install gh && gh auth login && gh auth setup-git")
                 return False, "\n\n".join(log)
     except (OSError, subprocess.TimeoutExpired) as e:
         log.append(f"Error: {e}")
