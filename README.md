@@ -57,6 +57,34 @@ GitHub Actions (y cada vez que subes observaciones o cambios al código):
 4. **Segundo modelo** ([surf_forecast/data.py](surf_forecast/data.py)): el oleaje de GFS (NOAA) se calcula
    igual para estimar la confianza. ECMWF no tiene datos en este punto de la costa.
 
+## Simulación de la playa
+
+`simular.py` simula cómo rompe el oleaje **zona por zona** sobre la forma real de la costa (rocas al norte,
+La Punta de Hacienda Cerritos, playa norte, centro y sur):
+
+```bash
+python simular.py                                   # pronóstico: mejor hora de las próximas 24 h
+python simular.py --fecha 2026-10-23 --hora 8       # un momento del pronóstico
+python simular.py --altura 1.5 --periodo 14 --direccion 300   # un swell inventado
+python simular.py --plantilla                       # mapa con cuadrícula para dibujar la batimetría
+```
+
+Genera `output/simulacion_playa.html` con la altura de rompiente y hacia dónde abre la ola en cada tramo de la
+costa, y un mapa satelital con las curvas de profundidad, los rayos de ola y los puntos donde rompe.
+
+- **Costa** ([surf_forecast/playa.py](surf_forecast/playa.py)): línea de costa de OpenStreetMap
+  (`data/playa/costa.json`), con el tramo de roca entre Punta Pescadero y la punta de la Hacienda.
+- **Batimetría:** perfil de equilibrio de Dean (`h = A·d^(2/3)`, más empinado en la roca) mezclado con tus
+  profundidades de `data/playa/batimetria_usuario.csv` (columnas `lat, lon, profundidad_m, descripcion`).
+  Ahí está la batimetría dibujada de memoria frente a la punta: barra a 1.3–1.6 m, fosa de ~1.8 m hacia la
+  orilla, 2.5 m en el borde exterior, roca junto al risco y el canal de la corriente de retorno (estimado).
+- **Oleaje** ([surf_forecast/simulacion.py](surf_forecast/simulacion.py)): trazado de rayos con refracción,
+  asomeramiento y rompiente a `H = 0.78·h`; cada componente (swell 1, swell 2, mar de viento) se simula por
+  separado y se combinan por energía.
+- **Limitaciones:** no hay difracción (detrás de la punta la ola real es algo mayor), ni corrientes, ni cambios de
+  los bancos de arena. Fuera de la zona que dibujaste la batimetría es sintética.
+- La imagen satelital (Esri World Imagery) se descarga a `data/cache/` y no se sube al repo.
+
 ## Observaciones y calibración
 
 Después de cada sesión registra lo que viste; con eso el pronóstico se ajusta a la playa real.
