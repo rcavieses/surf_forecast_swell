@@ -9,7 +9,8 @@ import numpy as np
 import pandas as pd
 
 from . import config
-from .surf import compute_surf
+from .fechas import ahora
+from .surf import compute_surf, surf_height
 
 ROOT = Path(__file__).resolve().parent.parent
 OBS_FILE = ROOT / "data" / "observaciones.csv"
@@ -40,9 +41,9 @@ def add_observation(obs: dict) -> None:
 
 
 def _history_files():
-    for p in sorted(HIST_DIR.glob("pronostico_*.csv")):
+    for p in sorted(HIST_DIR.glob("pronostico_*.csv*")):
         try:
-            yield datetime.strptime(p.stem.removeprefix("pronostico_"), "%Y%m%d_%H%M"), p
+            yield datetime.strptime(p.name.split(".")[0].removeprefix("pronostico_"), "%Y%m%d_%H%M"), p
         except ValueError:
             continue
 
@@ -76,21 +77,38 @@ def compare() -> pd.DataFrame:
         issued, hours = forecast_for(start, end)
         row = {"fecha": o["fecha"], "horas": f"{o['hora_inicio']}-{o['hora_fin']}",
                "visto_m": f"{o['altura_min_m']}-{o['altura_max_m']}", "sets_m": o["sets_m"], "lado": o["lado"],
-               "viento_visto": o["viento"]}
+               "viento_visto": o["viento"], "calidad": o["calidad"]}
         if hours is None:
             rows.append(row | {"emitido": "sin pronóstico"})
             continue
-        # Se recalcula con factor 1 para que la comparación no dependa del factor vigente al emitirse.
-        raw = compute_surf(hours, site_factor=1.0)["surf_m"].mean()
+        # La altura se recalcula con factor 1 para que no dependa del factor vigente al emitirse; la
+        # calificación y el lado, con el factor actual.
+        raw = surf_height(hours, site_factor=1.0).mean()
         current = raw * config.SITE_FACTOR
+        fc = compute_surf(hours)
         obs_mid = (float(o["altura_min_m"]) + float(o["altura_max_m"])) / 2
+        tide = hours["sea_level_height_msl"]
+        trend = tide.iloc[-1] - tide.iloc[0]
         rows.append(row | {
             "emitido": f"{issued:%d/%m %H:%M}",
             "pronóstico_m": f"{current * 0.75:.1f}-{current * 1.15:.1f}",
-            "viento_pron": f"{hours['wind_speed_10m'].mean():.0f} km/h, {hours['wind_kind'].mode().iloc[0]}",
+            "lado_pron": fc["lado"].mode().iloc[0],
+            "viento_pron": f"{hours['wind_speed_10m'].mean():.0f} km/h, {fc['wind_kind'].mode().iloc[0]}",
+            "marea": f"{tide.min():+.2f} a {tide.max():+.2f} m, "
+                     + ("subiendo" if trend > 0.05 else "bajando" if trend < -0.05 else "estable"),
+            "calif_pron": int(fc["rating"].max()),
             "factor_ideal": round(obs_mid / (raw * RANGE_MID), 2),
         })
     return pd.DataFrame(rows)
+
+
+def rating_bias(table: pd.DataFrame):
+    """Promedio de (calidad que diste - calificación pronosticada). None si no hay pares."""
+    if "calif_pron" not in table:
+        return None
+    pairs = table[["calidad", "calif_pron"]].replace("", np.nan).dropna()
+    return (round(float((pairs["calidad"].astype(float) - pairs["calif_pron"]).mean()), 1), len(pairs)) \
+        if len(pairs) else None
 
 
 def suggested_factor(table: pd.DataFrame):
@@ -102,7 +120,7 @@ def suggested_factor(table: pd.DataFrame):
 
 
 def save_calibration(factor: float, n_obs: int) -> Path:
-    data = {"site_factor": factor, "n_obs": n_obs, "actualizado": f"{datetime.now():%Y-%m-%d %H:%M}"}
+    data = {"site_factor": factor, "n_obs": n_obs, "actualizado": f"{ahora():%Y-%m-%d %H:%M}"}
     config.CALIB_FILE.parent.mkdir(parents=True, exist_ok=True)
     config.CALIB_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
     return config.CALIB_FILE

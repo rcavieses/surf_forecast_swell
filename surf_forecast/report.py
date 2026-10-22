@@ -1,15 +1,16 @@
 """Genera el reporte HTML interactivo (Plotly) y la salida en terminal."""
 
-from datetime import datetime
 from html import escape
 from pathlib import Path
 
 import pandas as pd
 import plotly.graph_objects as go
+from plotly.offline import get_plotlyjs
 from plotly.subplots import make_subplots
 
 from . import config
-from .surf import compass
+from .fechas import PLOTLY_LOCALE_JS, ahora, dia, dia_hora
+from .surf import M_TO_FT, compass
 
 RATING_COLORS = ["#9e9e9e", "#e57373", "#ffb74d", "#fff176", "#81c784", "#2e7d32"]
 WIND_COLORS = {"offshore": "#2e7d32", "calma": "#66bb6a", "cruzado": "#ffa726", "onshore": "#e53935"}
@@ -41,9 +42,9 @@ def build_figure(df: pd.DataFrame, daily: pd.DataFrame) -> go.Figure:
     )
 
     hover = [
-        f"<b>{t:%a %d %H:%M}</b><br>Surf: {r.surf_min_ft:.1f}-{r.surf_max_ft:.1f} ft "
+        f"<b>{dia_hora(t)}</b><br>Surf: {r.surf_min_ft:.1f}-{r.surf_max_ft:.1f} ft "
         f"({r.surf_min_m:.1f}-{r.surf_max_m:.1f} m)<br>"
-        f"{r.main_source}: {r.main_period:.0f}s {compass(r.main_direction)}<br>"
+        f"{r.main_source}: {r.main_period:.0f}s {compass(r.main_direction)} · {r.lado}<br>"
         f"Viento: {r.wind_speed_10m:.0f} km/h {compass(r.wind_direction_10m)} ({r.wind_kind})<br>"
         f"Calificación: {r.rating_label}"
         for t, r in df.iterrows()
@@ -53,6 +54,13 @@ def build_figure(df: pd.DataFrame, daily: pd.DataFrame) -> go.Figure:
         marker_color=[RATING_COLORS[r] for r in df["rating"]], marker_line_width=0,
         hovertext=hover, hoverinfo="text", name="Surf", showlegend=False,
     ), row=1, col=1)
+    if "surf_m_gfs" in df:
+        # Mismo punto del rango (centro) para comparar ambos modelos.
+        fig.add_trace(go.Scatter(
+            x=df.index, y=df["surf_m_gfs"] * 0.95 * M_TO_FT, name="Modelo GFS (centro, ft)", mode="lines",
+            line=dict(color="#37474f", width=1.5, dash="dot"),
+            hovertemplate="GFS: %{y:.1f} ft<extra></extra>",
+        ), row=1, col=1)
 
     for col, per, name, color in [
         ("swell_wave_height", "swell_wave_period", "Swell 1", "#1565c0"),
@@ -81,7 +89,7 @@ def build_figure(df: pd.DataFrame, daily: pd.DataFrame) -> go.Figure:
                              fillcolor="rgba(2,119,189,0.15)"), row=4, col=1)
 
     _night_shapes(fig, df, daily)
-    fig.add_vline(x=datetime.now(), line_dash="dash", line_color="#d32f2f")
+    fig.add_vline(x=ahora(), line_dash="dash", line_color="#d32f2f")
     fig.update_yaxes(title_text="ft", row=1, col=1, rangemode="tozero")
     fig.update_yaxes(title_text="m", row=2, col=1, rangemode="tozero")
     fig.update_yaxes(title_text="s", row=2, col=1, secondary_y=True, rangemode="tozero", showgrid=False)
@@ -93,8 +101,8 @@ def build_figure(df: pd.DataFrame, daily: pd.DataFrame) -> go.Figure:
     return fig
 
 
-SUMMARY_COLUMNS = ["Día", "Surf", "Periodo", "Dir. swell", "Mejor hora", "Viento 6-10h", "Viento 13-17h",
-                   "Calificación"]
+SUMMARY_COLUMNS = ["Día", "Surf", "Periodo", "Dir. swell", "Lado", "Mejores horas", "Viento 6-10h",
+                   "Viento 13-17h", "Confianza", "Calificación"]
 
 # En pantallas angostas: tabla -> tarjetas, y la gráfica se compacta (márgenes, ticks por día, sin zoom
 # por arrastre para que el dedo pueda desplazar la página).
@@ -130,8 +138,8 @@ def _summary_html(summary: pd.DataFrame) -> str:
     for day, r in summary.iterrows():
         color = RATING_COLORS[r["calif_max"]]
         cells = [
-            f"{pd.Timestamp(day):%a %d %b}", f"<b>{r['surf_ft']} ft</b> ({r['surf_m']} m)", f"{r['periodo_s']} s",
-            r["dir_swell"], r["mejor_hora"], r["viento_mañana"], r["viento_tarde"],
+            dia(day), f"<b>{r['surf_ft']} ft</b> ({r['surf_m']} m)", f"{r['periodo_s']} s",
+            r["dir_swell"], r["lado"], r["mejores_horas"], r["viento_mañana"], r["viento_tarde"], r["confianza"],
             f"{'★' * r['calif_max']}{'☆' * (5 - r['calif_max'])} {escape(r['calif'])}",
         ]
         tds = [f"<td data-label='{label}'><span>{cell}</span></td>" for label, cell in zip(SUMMARY_COLUMNS, cells)]
@@ -167,8 +175,10 @@ def _calibration_note() -> str:
 
 def write_html(df: pd.DataFrame, daily: pd.DataFrame, summary: pd.DataFrame, path: Path) -> Path:
     fig = build_figure(df, daily)
-    chart = fig.to_html(full_html=False, include_plotlyjs=True, post_script=MOBILE_JS,
-                        config={"responsive": True, "displaylogo": False, "scrollZoom": False})
+    # Plotly va incrustado (el reporte funciona sin internet) con el idioma registrado antes de dibujar.
+    chart = f"<script>{get_plotlyjs()}</script><script>{PLOTLY_LOCALE_JS}</script>" + fig.to_html(
+        full_html=False, include_plotlyjs=False, post_script=MOBILE_JS,
+        config={"responsive": True, "displaylogo": False, "scrollZoom": False, "locale": "es"})
     html = f"""<!doctype html>
 <html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Surf {escape(config.SPOT_NAME)}</title>
@@ -199,7 +209,7 @@ def write_html(df: pd.DataFrame, daily: pd.DataFrame, summary: pd.DataFrame, pat
  }}
 </style></head><body>
 <h1>🏄 {escape(config.SPOT_NAME)}</h1>
-<p class="sub">Generado {datetime.now():%Y-%m-%d %H:%M} · Datos: Open-Meteo (modelos de oleaje y viento) ·
+<p class="sub">Generado {dia_hora(ahora())} (hora local) · Datos: Open-Meteo (modelos de oleaje y viento) ·
 Punto {config.LATITUDE}, {config.LONGITUDE} · Playa orientada a {config.BEACH_NORMAL_DEG}° ({compass(config.BEACH_NORMAL_DEG)})</p>
 {_webcam_html()}
 <h2>Resumen diario (horas de luz)</h2>
@@ -208,6 +218,8 @@ Punto {config.LATITUDE}, {config.LONGITUDE} · Playa orientada a {config.BEACH_N
 <p class="note">La altura de surf es una estimación de la ola en la rompiente (Komar &amp; Gaughan) ajustada por la
 orientación de la playa y un factor de sitio ({config.SITE_FACTOR}{_calibration_note()}). Registra lo que veas en el
 agua con <code>python observar.py agregar</code> y ajusta el factor con <code>python observar.py calibrar</code>.
+<b>Lado</b>: hacia dónde abre la ola según el ángulo del swell con la playa (los bancos de arena pueden cambiarlo).
+<b>Confianza</b>: qué tanto coincide la altura con un segundo modelo (GFS, línea punteada).
 Zonas sombreadas = noche.</p>
 </body></html>"""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -217,16 +229,17 @@ Zonas sombreadas = noche.</p>
 
 def print_terminal(df: pd.DataFrame, summary: pd.DataFrame, step_hours: int = 3):
     print(f"\n=== {config.SPOT_NAME} – resumen diario (horas de luz) ===\n")
-    print(summary.drop(columns="calif_max").to_string())
+    print(summary.drop(columns="calif_max").set_axis(summary.index.map(dia)).to_string())
 
-    now = pd.Timestamp.now().floor("h")
+    now = ahora().floor("h")
     near = df[(df.index >= now) & (df.index < now + pd.Timedelta(hours=48))].iloc[::step_hours]
-    near = near.set_axis(near.index.strftime("%a %d %H:%M"))
+    near = near.set_axis(near.index.map(dia_hora))
     table = pd.DataFrame({
         "surf (ft)": [f"{a:.1f}-{b:.1f}" for a, b in zip(near["surf_min_ft"], near["surf_max_ft"])],
         "surf (m)": [f"{a:.1f}-{b:.1f}" for a, b in zip(near["surf_min_m"], near["surf_max_m"])],
         "periodo": near["main_period"].map(lambda v: f"{v:.0f}s"),
         "dir": near["main_direction"].map(compass),
+        "lado": near["lado"],
         "viento": [f"{s:.0f} km/h {compass(d)}" for s, d in zip(near["wind_speed_10m"], near["wind_direction_10m"])],
         "tipo": near["wind_kind"],
         "marea": near["sea_level_height_msl"].map(lambda v: f"{v:+.2f} m"),

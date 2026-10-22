@@ -16,6 +16,7 @@ from datetime import date
 
 from surf_forecast import config
 from surf_forecast import observaciones as obs
+from surf_forecast.fechas import ahora
 
 LADOS = ["izquierda", "derecha", "ambos", "cerrada"]
 
@@ -83,8 +84,26 @@ def cmd_comparar(_a):
     if table.empty:
         print("Todavía no hay observaciones. Agrega una con: python observar.py agregar")
         return None
-    print(f"\n=== Observaciones vs. pronóstico (factor actual {config.SITE_FACTOR}) ===\n")
-    print(table.fillna("").to_string(index=False))
+    print(f"\n=== Observaciones vs. pronóstico (factor actual {config.SITE_FACTOR}) ===")
+    # Una ficha por sesión (visto | pronóstico) para que se lea bien en la pantalla del teléfono.
+    for _, r in table.fillna("").iterrows():
+        print(f"\n{r['fecha']} {r['horas']}  (pronóstico emitido {r['emitido']})")
+        for label, seen, fc in [("Altura", f"{r['visto_m']} m" + (f", sets {r['sets_m']} m" if r["sets_m"] else ""),
+                                 f"{r.get('pronóstico_m', '')} m"),
+                                ("Lado", r["lado"], r.get("lado_pron", "")),
+                                ("Viento", r["viento_visto"], r.get("viento_pron", "")),
+                                ("Calidad", r["calidad"], r.get("calif_pron", ""))]:
+            print(f"  {label:<8} visto: {seen or '-':<28} pronóstico: {fc or '-'}")
+        if r.get("marea"):
+            print(f"  Marea    {r['marea']}")
+        if r.get("factor_ideal") != "":
+            print(f"  Factor ideal: {r['factor_ideal']}")
+    bias = obs.rating_bias(table)
+    if bias:
+        b, nb = bias
+        tendency = "subestima" if b > 0.4 else "sobreestima" if b < -0.4 else "acierta en"
+        print(f"\nCalificación: en promedio diste {b:+.1f} estrellas vs. el pronóstico ({nb} {'sesiones' if nb != 1 else 'sesión'}): "
+              f"el modelo {tendency} la calidad.")
     sug = obs.suggested_factor(table)
     if sug is None:
         print("\nNinguna observación tiene pronóstico guardado en data/historial/ para comparar.")
@@ -122,7 +141,7 @@ def main():
     sub = p.add_subparsers(dest="cmd", required=True)
 
     ag = sub.add_parser("agregar", help="registrar una sesión")
-    ag.add_argument("--fecha", default=date.today().isoformat())
+    ag.add_argument("--fecha", default=ahora().date().isoformat())
     ag.add_argument("--inicio", help="hora de inicio, HH o HH:MM")
     ag.add_argument("--fin", help="hora de fin, HH o HH:MM")
     ag.add_argument("--min", type=float, help="altura mínima típica (m)")

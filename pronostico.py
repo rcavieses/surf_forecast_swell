@@ -10,11 +10,13 @@ Uso:
 import argparse
 import sys
 import webbrowser
-from datetime import datetime
 from pathlib import Path
+
+import pandas as pd
 
 from surf_forecast import config
 from surf_forecast.data import fetch_forecast
+from surf_forecast.fechas import ahora
 from surf_forecast.report import print_terminal, write_html
 from surf_forecast.surf import compute_surf, daily_summary
 
@@ -37,10 +39,11 @@ def main():
 
     print_terminal(df, summary)
 
-    # Historial para comparar después contra lo observado y calibrar SITE_FACTOR.
+    # Historial para comparar después contra lo observado y calibrar SITE_FACTOR. Basta con los próximos
+    # 3 días: las observaciones se comparan con el último pronóstico emitido antes de la sesión.
     hist_dir = ROOT / "data" / "historial"
     hist_dir.mkdir(parents=True, exist_ok=True)
-    df.to_csv(hist_dir / f"pronostico_{datetime.now():%Y%m%d_%H%M}.csv")
+    df[df.index < ahora() + pd.Timedelta(days=3)].round(3).to_csv(hist_dir / f"pronostico_{ahora():%Y%m%d_%H%M}.csv.gz")
 
     out = write_html(df, daily, summary, ROOT / "output" / "pronostico_cerritos.html")
     print(f"\nReporte: {out}")

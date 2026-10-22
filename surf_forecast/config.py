@@ -30,6 +30,18 @@ CALIBRATION = json.loads(CALIB_FILE.read_text(encoding="utf-8")) if CALIB_FILE.e
 if CALIBRATION:
     SITE_FACTOR = CALIBRATION["site_factor"]
 
+# Si el swell llega a menos de estos grados de la normal de la playa, las olas rompen en "pico"
+# (abren a los dos lados); si no, se marcan como izquierda o derecha según de qué lado llegan.
+PEAK_ANGLE_DEG = 10
+
+# Segundo modelo de oleaje para estimar la confianza del pronóstico (el principal es el que
+# Open-Meteo elige por defecto, Météo-France en esta zona). ECMWF no tiene datos en este punto.
+COMPARISON_WAVE_MODEL = "ncep_gfswave016"
+
+# Alertas (alerta.py): avisa si en los próximos ALERT_DAYS días hay calificación >= ALERT_MIN_RATING.
+ALERT_MIN_RATING = 4
+ALERT_DAYS = 3
+
 # Viento offshore = viento que sopla desde tierra hacia el mar.
 OFFSHORE_WIND_DEG = (BEACH_NORMAL_DEG + 180) % 360
 

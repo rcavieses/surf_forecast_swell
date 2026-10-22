@@ -1,0 +1,85 @@
+# Genera el pronóstico cada 3 horas, lo publica en GitHub Pages, guarda el historial en el repo
+# (para comparar con tus observaciones) y a las 18 h de Cerritos avisa por ntfy si vienen buenos días.
+name: Pronóstico
+
+on:
+  schedule:
+    # 1, 4, 7, ... UTC = 18, 21, 0, 3, 6, 9, 12, 15 h en Cerritos (UTC-7, sin horario de verano).
+    - cron: "0 1-22/3 * * *"
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "surf_forecast/**"
+      - "pronostico.py"
+      - "alerta.py"
+      - "requirements.txt"
+      - "data/observaciones.csv"
+      - "data/calibracion.json"
+      - ".github/workflows/pronostico.yml"
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pronostico
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Pronóstico
+        run: |
+          python pronostico.py --no-open --refrescar
+          cp output/pronostico_cerritos.html output/index.html
+
+      - name: Guardar historial
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/historial
+          if ! git diff --cached --quiet; then
+            git commit -m "Historial: pronóstico $(TZ=America/Mazatlan date +'%Y-%m-%d %H:%M')"
+            git pull --rebase
+            git push
+          fi
+
+      - name: Aviso de buenos días (18-20 h de Cerritos)
+        if: github.event_name == 'schedule'
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          REPORT_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
+        run: |
+          hour=$(TZ=America/Mazatlan date +%H)
+          if [ -n "$NTFY_TOPIC" ] && [ "$hour" -ge 18 ] && [ "$hour" -le 20 ]; then
+            python alerta.py
+          else
+            echo "Sin aviso (hora local $hour o NTFY_TOPIC sin configurar)."
+          fi
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: output
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

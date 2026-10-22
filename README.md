@@ -3,6 +3,8 @@
 Proyecto personal que pronostica la **altura** y el **periodo** de las olas para surf en Playa Cerritos
 (Baja California Sur), con calificación por hora, viento y marea.
 
+**Reporte en línea:** https://rcavieses.github.io/surf_forecast_swell/ (se actualiza solo cada 3 horas).
+
 ## Uso
 
 ```powershell
@@ -21,7 +23,25 @@ Opciones:
 Salidas:
 - **Terminal:** resumen diario y tabla de las próximas 48 h.
 - **`output/pronostico_cerritos.html`:** reporte interactivo (funciona sin internet una vez generado).
-- **`data/historial/*.csv`:** cada pronóstico se guarda para que lo compares después con lo que viste.
+- **`data/historial/*.csv.gz`:** cada pronóstico (próximos 3 días) se guarda para compararlo después con lo que viste.
+
+En el resumen diario:
+- **Lado:** hacia dónde abre la ola (izquierda / derecha / pico) según el ángulo del swell con la playa.
+  Los bancos de arena del día pueden cambiarlo.
+- **Mejores horas:** todas las ventanas con la calificación más alta del día.
+- **Confianza:** qué tanto coincide la altura con un segundo modelo de oleaje (GFS de NOAA, línea punteada
+  en la gráfica). Alta < 15 % de diferencia, media < 30 %, baja el resto.
+
+## Publicación automática y avisos al teléfono
+
+El workflow [.github/workflows/pronostico.yml](.github/workflows/pronostico.yml) corre cada 3 horas en
+GitHub Actions (y cada vez que subes observaciones o cambios al código):
+
+1. Genera el pronóstico y lo publica en GitHub Pages.
+2. Guarda el pronóstico en `data/historial/` (haz `git pull` antes de usar `observar.py comparar`).
+3. Entre las 18 y 20 h de Cerritos, si en los próximos `ALERT_DAYS` días hay calificación
+   ≥ `ALERT_MIN_RATING`, manda un aviso con [ntfy](https://ntfy.sh): instala la app ntfy y suscríbete al
+   tema guardado en el secreto `NTFY_TOPIC` del repo. Para probarlo: `NTFY_TOPIC=<tema> python alerta.py --prueba`.
 
 ## Cómo funciona
 
@@ -34,6 +54,8 @@ Salidas:
    fuera de la ventana de exposición se bloquean. Los componentes se combinan por energía.
 3. **Calificación (0-5):** según tamaño, periodo y viento (offshore = del NE en Cerritos;
    onshore = del O/SO, que suele entrar por la tarde).
+4. **Segundo modelo** ([surf_forecast/data.py](surf_forecast/data.py)): el oleaje de GFS (NOAA) se calcula
+   igual para estimar la confianza. ECMWF no tiene datos en este punto de la costa.
 
 ## Observaciones y calibración
 
@@ -46,7 +68,9 @@ python observar.py calibrar     # guarda el factor sugerido; el siguiente pronó
 ```
 
 - Las observaciones se guardan en `data/observaciones.csv`.
-- `comparar` busca en `data/historial/` el último pronóstico emitido **antes** de tu sesión y calcula el
+- `comparar` muestra, por sesión, lo que viste junto a lo pronosticado (altura, lado, viento, calidad) y
+  la marea que hubo. También indica si el modelo tiende a sobreestimar o subestimar la calidad.
+- Para la altura busca en `data/historial/` el último pronóstico emitido **antes** de tu sesión y calcula el
   `factor_ideal`: el factor de sitio con el que el punto medio del rango pronosticado habría coincidido con
   el punto medio de lo que viste. El factor sugerido es la mediana de todos.
 - `calibrar` escribe `data/calibracion.json`, que tiene prioridad sobre `SITE_FACTOR` de `config.py`.

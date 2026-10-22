@@ -68,24 +68,43 @@ def _rating(row) -> int:
     return int(np.clip(round(score), 0, 5))
 
 
+def _components(waves: pd.DataFrame, site_factor=None) -> pd.DataFrame:
+    """Altura de rompiente de cada componente (swell 1, swell 2, mar de viento)."""
+    return pd.DataFrame({
+        f"hb_{name}": breaking_height(waves[f"{prefix}wave_height"], waves[f"{prefix}wave_period"],
+                                      waves[f"{prefix}wave_direction"], site_factor)
+        for name, prefix in [("primary", "swell_"), ("secondary", "secondary_swell_"), ("windsea", "wind_")]
+    }, index=waves.index)
+
+
+def surf_height(waves: pd.DataFrame, site_factor=None) -> pd.Series:
+    """Altura de rompiente combinada (m). Los componentes se combinan por energía."""
+    return np.sqrt((_components(waves, site_factor) ** 2).sum(axis=1))
+
+
+def peel_side(direction):
+    """Hacia dónde abre la ola, visto por el surfista, según el ángulo del swell con la playa.
+
+    Mirando al mar desde la orilla, un swell que llega por la izquierda de la normal de la playa
+    (menos grados) toca primero ese extremo y abre hacia la derecha de quien mira desde la arena:
+    para el surfista, que mira hacia la orilla, eso es una izquierda.
+    """
+    d = (np.asarray(direction, dtype=float) - config.BEACH_NORMAL_DEG + 180) % 360 - 180
+    return np.where(np.abs(d) < config.PEAK_ANGLE_DEG, "pico", np.where(d < 0, "izquierda", "derecha"))
+
+
 def compute_surf(hourly: pd.DataFrame, site_factor=None) -> pd.DataFrame:
     df = hourly.copy()
+    df[["hb_primary", "hb_secondary", "hb_windsea"]] = _components(df, site_factor)
 
-    df["hb_primary"] = breaking_height(df["swell_wave_height"], df["swell_wave_period"], df["swell_wave_direction"],
-                                       site_factor)
-    df["hb_secondary"] = breaking_height(
-        df["secondary_swell_wave_height"], df["secondary_swell_wave_period"], df["secondary_swell_wave_direction"],
-        site_factor,
-    )
-    df["hb_windsea"] = breaking_height(df["wind_wave_height"], df["wind_wave_period"], df["wind_wave_direction"],
-                                       site_factor)
-
-    # Los componentes se combinan por energía.
     df["surf_m"] = np.sqrt(df["hb_primary"] ** 2 + df["hb_secondary"] ** 2 + df["hb_windsea"] ** 2)
     df["surf_min_m"] = df["surf_m"] * 0.75
     df["surf_max_m"] = df["surf_m"] * 1.15
     df["surf_min_ft"] = df["surf_min_m"] * M_TO_FT
     df["surf_max_ft"] = df["surf_max_m"] * M_TO_FT
+    if "swell_wave_height_gfs" in df:
+        gfs = df.filter(regex="wave_(height|period|direction)_gfs$").rename(columns=lambda c: c.removesuffix("_gfs"))
+        df["surf_m_gfs"] = surf_height(gfs, site_factor)
 
     # Periodo y dirección del componente que más aporta a la rompiente.
     comps = df[["hb_primary", "hb_secondary", "hb_windsea"]].to_numpy()
@@ -96,6 +115,7 @@ def compute_surf(hourly: pd.DataFrame, site_factor=None) -> pd.DataFrame:
     df["main_period"] = periods[rows, idx]
     df["main_direction"] = dirs[rows, idx]
     df["main_source"] = np.array(["Swell 1", "Swell 2", "Mar de viento"])[idx]
+    df["lado"] = peel_side(df["main_direction"])
 
     df["wind_kind"] = wind_quality(df["wind_speed_10m"], df["wind_direction_10m"])
     df["rating"] = df.apply(_rating, axis=1)
@@ -110,6 +130,26 @@ def compass(deg) -> str:
     return names[int((deg % 360) / 22.5 + 0.5) % 16]
 
 
+def _windows(hours: pd.DatetimeIndex) -> str:
+    """Agrupa horas consecutivas: [6,7,8,9,18,19] -> '06–09h · 18–19h'."""
+    runs = []
+    for t in hours:
+        if runs and t - runs[-1][1] == pd.Timedelta(hours=1):
+            runs[-1][1] = t
+        else:
+            runs.append([t, t])
+    return " · ".join(f"{a:%H}h" if a == b else f"{a:%H}–{b:%H}h" for a, b in runs)
+
+
+def _confidence(g: pd.DataFrame) -> str:
+    """Qué tanto coinciden los dos modelos de oleaje en la altura del día."""
+    if "surf_m_gfs" not in g or g["surf_m_gfs"].isna().all():
+        return "-"
+    a, b = g["surf_m"].mean(), g["surf_m_gfs"].mean()
+    diff = abs(a - b) / max((a + b) / 2, 0.3)
+    return "alta" if diff < 0.15 else "media" if diff < 0.30 else "baja"
+
+
 def daily_summary(df: pd.DataFrame, daily: pd.DataFrame) -> pd.DataFrame:
     """Resumen por día usando solo horas de luz."""
     out = []
@@ -119,17 +159,19 @@ def daily_summary(df: pd.DataFrame, daily: pd.DataFrame) -> pd.DataFrame:
             g = g[(g.index >= sr.floor("h")) & (g.index <= ss)]
         if g.empty:
             continue
-        best_t = g["rating"].idxmax()
-        best = g.loc[best_t]
+        top = int(g["rating"].max())
+        best = g[g["rating"] == top]
         out.append({
             "fecha": day,
             "surf_ft": f"{g['surf_min_ft'].min():.0f}-{g['surf_max_ft'].max():.0f}",
             "surf_m": f"{g['surf_min_m'].min():.1f}-{g['surf_max_m'].max():.1f}",
             "periodo_s": round(g["main_period"].mean(), 1),
-            "dir_swell": compass(best["main_direction"]),
-            "mejor_hora": best_t.strftime("%H:%M"),
-            "calif_max": int(g["rating"].max()),
-            "calif": RATING_LABELS[int(g["rating"].max())],
+            "dir_swell": compass(best["main_direction"].median()),
+            "lado": best["lado"].mode().iloc[0],
+            "mejores_horas": _windows(best.index),
+            "calif_max": top,
+            "calif": RATING_LABELS[top],
+            "confianza": _confidence(g),
             "viento_mañana": f"{g.between_time('06:00', '10:00')['wind_speed_10m'].mean():.0f} km/h",
             "viento_tarde": f"{g.between_time('13:00', '17:00')['wind_speed_10m'].mean():.0f} km/h",
         })
