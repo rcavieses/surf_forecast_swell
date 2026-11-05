@@ -38,20 +38,38 @@ def sync_github() -> tuple[bool, str]:
     """git add/commit de data/, pull --rebase y push. Devuelve (ok, salida)."""
     log = []
 
+    # GIT_TERMINAL_PROMPT=0: sin credenciales, git falla en vez de quedarse esperando un usuario.
+    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+
+    def run(*args):
+        return subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True, encoding="utf-8",
+                              errors="replace", timeout=120, env=env)
+
     def git(*args):
-        # GIT_TERMINAL_PROMPT=0: sin credenciales, git falla en vez de quedarse esperando un usuario.
-        r = subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True, encoding="utf-8",
-                           errors="replace", timeout=120, env={**os.environ, "GIT_TERMINAL_PROMPT": "0"})
+        r = run(*args)
         log.append(f"$ git {' '.join(args)}\n{(r.stdout + r.stderr).strip()}".strip())
         return r.returncode
 
     try:
+        # En un Termux recién instalado git no tiene nombre ni correo y el commit falla
+        # ("Please tell me who you are"); se usa uno genérico solo para estos commits.
+        for key, value in (("user.name", "observar_web"), ("user.email", "observar_web@localhost")):
+            if not run("config", key).stdout.strip():
+                kind = key.split(".")[1].upper()
+                env[f"GIT_AUTHOR_{kind}"] = env[f"GIT_COMMITTER_{kind}"] = value
+        # Sin rama remota configurada, pull y push sin argumentos fallan: se usa origin/<rama actual>.
+        branch = run("rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+        has_upstream = run("rev-parse", "--abbrev-ref", "@{u}").returncode == 0
+        remote_exists = has_upstream or run("ls-remote", "--exit-code", "--heads", "origin", branch).returncode == 0
+        pull = ("pull", "--rebase", "--autostash") + (() if has_upstream else ("origin", branch))
+        push = ("push",) if has_upstream else ("push", "-u", "origin", branch)
+
         git("add", "-A", "data")
         if git("diff", "--cached", "--quiet") == 1 and git("commit", "-m", f"Observaciones {ahora():%Y-%m-%d %H:%M}"):
             return False, "\n\n".join(log)
-        for args in (("pull", "--rebase", "--autostash"), ("push",)):
+        for args in ((pull, push) if remote_exists else (push,)):
             if git(*args):
-                if args == ("push",):
+                if args == push:
                     log.append("Si falta iniciar sesión en GitHub (Termux): "
                                "pkg install gh && gh auth login && gh auth setup-git")
                 return False, "\n\n".join(log)
